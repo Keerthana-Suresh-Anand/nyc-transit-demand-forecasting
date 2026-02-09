@@ -1,0 +1,17 @@
+# Secrets
+.env
+
+# Data (Never push massive CSVs to GitHub!)
+*.csv
+data/
+raw/
+
+# Python/Conda clutter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+# Environments
+env/
+venv/

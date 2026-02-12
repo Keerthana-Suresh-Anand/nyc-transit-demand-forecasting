@@ -1,10 +1,15 @@
 # Secrets
 .env
 
-# Data (Never push massive CSVs to GitHub!)
-*.csv
+# Data
 data/
-raw/
+*.csv
+*.parquet
+*.txt
+
+# But DON'T ignore the .dvc files that track them
+!*.dvc
+
 
 # Python/Conda clutter
 __pycache__/

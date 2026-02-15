@@ -2,14 +2,11 @@
 .env
 
 # Data
-data/
+data/*
+!data/**/*.dvc
 *.csv
 *.parquet
 *.txt
-
-# But DON'T ignore the .dvc files that track them
-!*.dvc
-
 
 # Python/Conda clutter
 __pycache__/

@@ -1,0 +1,5 @@
+outs:
+- md5: a417f087fe055b90bed829c306a8a9a9
+  size: 618605
+  hash: md5
+  path: mta_weather_merged.parquet

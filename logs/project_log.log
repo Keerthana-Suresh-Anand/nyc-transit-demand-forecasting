@@ -1,0 +1,310 @@
+2026-02-10 16:05:06 | __main__ | INFO | Starting MTA ingestion job
+2026-02-10 16:05:06 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2025-01-07
+2026-02-10 16:07:03 | __main__ | INFO | Starting MTA ingestion job
+2026-02-10 16:07:03 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2025-01-07
+2026-02-10 16:07:04 | __main__ | INFO | MTA API request successful
+2026-02-10 16:08:26 | __main__ | INFO | Starting MTA ingestion job
+2026-02-10 16:08:26 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2025-01-07
+2026-02-10 16:08:27 | __main__ | INFO | MTA API request successful
+2026-02-10 16:10:04 | __main__ | ERROR | Missing environment variables: AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION, AWS_BUCKET_NAME, NY_APP_TOKEN
+2026-02-10 16:10:04 | __main__ | INFO | Ensure your .env file is in the root directory.
+2026-02-10 16:12:19 | __main__ | INFO | Starting MTA ingestion job
+2026-02-10 16:12:19 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2025-01-07
+2026-02-10 16:12:20 | __main__ | INFO | MTA API request successful
+2026-02-10 16:12:20 | __main__ | INFO | Uploaded data to s3://transit-ml/bronze/mta/start_date=2025-01-01/end_date=2025-01-07/mta_daily_ridership.csv
+2026-02-10 16:12:20 | __main__ | INFO | MTA ingestion job completed successfully
+2026-02-10 16:36:29 | __main__ | INFO | Starting MTA ingestion job
+2026-02-10 16:36:29 | __main__ | INFO | Fetching MTA data from 2025-02-01 to 2025-02-07
+2026-02-10 16:36:30 | __main__ | INFO | MTA API request successful
+2026-02-10 16:36:31 | __main__ | INFO | Uploaded data to s3://transit-ml/bronze/mta/start_date=2025-02-01/end_date=2025-02-07/mta_daily_ridership.csv
+2026-02-10 16:36:31 | __main__ | INFO | MTA ingestion job completed successfully
+2026-02-10 16:41:05 | __main__ | INFO | Starting MTA ingestion job
+2026-02-10 16:41:05 | __main__ | INFO | Fetching MTA data from 2026-02-01 to 2026-02-07
+2026-02-10 16:41:05 | __main__ | INFO | MTA API request successful
+2026-02-10 16:41:06 | __main__ | INFO | Uploaded data to s3://transit-ml/bronze/mta/2026-02-01 - 2026-02-07.csv
+2026-02-10 16:41:06 | __main__ | INFO | MTA ingestion job completed successfully
+2026-02-10 17:09:56 | __main__ | INFO | No watermark found. First run will fetch all data.
+2026-02-10 17:09:56 | __main__ | INFO | Fetching updates from 2025-01-01 to 2026-02-04
+2026-02-10 17:09:56 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2025-01-07
+2026-02-10 17:09:57 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-01-01_2025-01-07.csv
+2026-02-10 17:09:58 | __main__ | INFO | Fetching MTA data from 2025-01-08 to 2025-01-14
+2026-02-10 17:10:01 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-01-08_2025-01-14.csv
+2026-02-10 17:10:01 | __main__ | INFO | Fetching MTA data from 2025-01-15 to 2025-01-21
+2026-02-10 17:10:02 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-01-15_2025-01-21.csv
+2026-02-10 17:10:02 | __main__ | INFO | Fetching MTA data from 2025-01-22 to 2025-01-28
+2026-02-10 17:10:04 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-01-22_2025-01-28.csv
+2026-02-10 17:10:04 | __main__ | INFO | Fetching MTA data from 2025-01-29 to 2025-02-04
+2026-02-10 17:10:06 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-01-29_2025-02-04.csv
+2026-02-10 17:10:06 | __main__ | INFO | Fetching MTA data from 2025-02-05 to 2025-02-11
+2026-02-10 17:10:08 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-02-05_2025-02-11.csv
+2026-02-10 17:10:08 | __main__ | INFO | Fetching MTA data from 2025-02-12 to 2025-02-18
+2026-02-10 17:10:09 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-02-12_2025-02-18.csv
+2026-02-10 17:10:09 | __main__ | INFO | Fetching MTA data from 2025-02-19 to 2025-02-25
+2026-02-10 17:10:13 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-02-19_2025-02-25.csv
+2026-02-10 17:10:13 | __main__ | INFO | Fetching MTA data from 2025-02-26 to 2025-03-04
+2026-02-10 17:10:14 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-02-26_2025-03-04.csv
+2026-02-10 17:10:14 | __main__ | INFO | Fetching MTA data from 2025-03-05 to 2025-03-11
+2026-02-10 17:10:17 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-03-05_2025-03-11.csv
+2026-02-10 17:10:17 | __main__ | INFO | Fetching MTA data from 2025-03-12 to 2025-03-18
+2026-02-10 17:10:19 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-03-12_2025-03-18.csv
+2026-02-10 17:10:19 | __main__ | INFO | Fetching MTA data from 2025-03-19 to 2025-03-25
+2026-02-10 17:10:21 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-03-19_2025-03-25.csv
+2026-02-10 17:10:21 | __main__ | INFO | Fetching MTA data from 2025-03-26 to 2025-04-01
+2026-02-10 17:10:23 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-03-26_2025-04-01.csv
+2026-02-10 17:10:23 | __main__ | INFO | Fetching MTA data from 2025-04-02 to 2025-04-08
+2026-02-10 17:10:26 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-04-02_2025-04-08.csv
+2026-02-10 17:10:26 | __main__ | INFO | Fetching MTA data from 2025-04-09 to 2025-04-15
+2026-02-10 17:10:28 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-04-09_2025-04-15.csv
+2026-02-10 17:10:29 | __main__ | INFO | Fetching MTA data from 2025-04-16 to 2025-04-22
+2026-02-10 17:10:31 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-04-16_2025-04-22.csv
+2026-02-10 17:10:31 | __main__ | INFO | Fetching MTA data from 2025-04-23 to 2025-04-29
+2026-02-10 17:10:35 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-04-23_2025-04-29.csv
+2026-02-10 17:10:35 | __main__ | INFO | Fetching MTA data from 2025-04-30 to 2025-05-06
+2026-02-10 17:10:37 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-04-30_2025-05-06.csv
+2026-02-10 17:10:37 | __main__ | INFO | Fetching MTA data from 2025-05-07 to 2025-05-13
+2026-02-10 17:10:38 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-05-07_2025-05-13.csv
+2026-02-10 17:10:38 | __main__ | INFO | Fetching MTA data from 2025-05-14 to 2025-05-20
+2026-02-10 17:10:40 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-05-14_2025-05-20.csv
+2026-02-10 17:10:40 | __main__ | INFO | Fetching MTA data from 2025-05-21 to 2025-05-27
+2026-02-10 17:10:41 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-05-21_2025-05-27.csv
+2026-02-10 17:10:41 | __main__ | INFO | Fetching MTA data from 2025-05-28 to 2025-06-03
+2026-02-10 17:10:42 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-05-28_2025-06-03.csv
+2026-02-10 17:10:42 | __main__ | INFO | Fetching MTA data from 2025-06-04 to 2025-06-10
+2026-02-10 17:10:44 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-06-04_2025-06-10.csv
+2026-02-10 17:10:44 | __main__ | INFO | Fetching MTA data from 2025-06-11 to 2025-06-17
+2026-02-10 17:10:45 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-06-11_2025-06-17.csv
+2026-02-10 17:10:45 | __main__ | INFO | Fetching MTA data from 2025-06-18 to 2025-06-24
+2026-02-10 17:10:46 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-06-18_2025-06-24.csv
+2026-02-10 17:10:46 | __main__ | INFO | Fetching MTA data from 2025-06-25 to 2025-07-01
+2026-02-10 17:10:47 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-06-25_2025-07-01.csv
+2026-02-10 17:10:47 | __main__ | INFO | Fetching MTA data from 2025-07-02 to 2025-07-08
+2026-02-10 17:10:48 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-07-02_2025-07-08.csv
+2026-02-10 17:10:48 | __main__ | INFO | Fetching MTA data from 2025-07-09 to 2025-07-15
+2026-02-10 17:10:48 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-07-09_2025-07-15.csv
+2026-02-10 17:10:49 | __main__ | INFO | Fetching MTA data from 2025-07-16 to 2025-07-22
+2026-02-10 17:10:49 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-07-16_2025-07-22.csv
+2026-02-10 17:10:49 | __main__ | INFO | Fetching MTA data from 2025-07-23 to 2025-07-29
+2026-02-10 17:10:50 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-07-23_2025-07-29.csv
+2026-02-10 17:10:50 | __main__ | INFO | Fetching MTA data from 2025-07-30 to 2025-08-05
+2026-02-10 17:10:51 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-07-30_2025-08-05.csv
+2026-02-10 17:10:51 | __main__ | INFO | Fetching MTA data from 2025-08-06 to 2025-08-12
+2026-02-10 17:10:52 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-08-06_2025-08-12.csv
+2026-02-10 17:10:52 | __main__ | INFO | Fetching MTA data from 2025-08-13 to 2025-08-19
+2026-02-10 17:10:53 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-08-13_2025-08-19.csv
+2026-02-10 17:10:53 | __main__ | INFO | Fetching MTA data from 2025-08-20 to 2025-08-26
+2026-02-10 17:10:54 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-08-20_2025-08-26.csv
+2026-02-10 17:10:54 | __main__ | INFO | Fetching MTA data from 2025-08-27 to 2025-09-02
+2026-02-10 17:10:55 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-08-27_2025-09-02.csv
+2026-02-10 17:10:55 | __main__ | INFO | Fetching MTA data from 2025-09-03 to 2025-09-09
+2026-02-10 17:10:57 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-09-03_2025-09-09.csv
+2026-02-10 17:10:57 | __main__ | INFO | Fetching MTA data from 2025-09-10 to 2025-09-16
+2026-02-10 17:10:59 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-09-10_2025-09-16.csv
+2026-02-10 17:10:59 | __main__ | INFO | Fetching MTA data from 2025-09-17 to 2025-09-23
+2026-02-10 17:11:00 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-09-17_2025-09-23.csv
+2026-02-10 17:11:00 | __main__ | INFO | Fetching MTA data from 2025-09-24 to 2025-09-30
+2026-02-10 17:11:02 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-09-24_2025-09-30.csv
+2026-02-10 17:11:02 | __main__ | INFO | Fetching MTA data from 2025-10-01 to 2025-10-07
+2026-02-10 17:11:03 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-10-01_2025-10-07.csv
+2026-02-10 17:11:03 | __main__ | INFO | Fetching MTA data from 2025-10-08 to 2025-10-14
+2026-02-10 17:11:04 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-10-08_2025-10-14.csv
+2026-02-10 17:11:04 | __main__ | INFO | Fetching MTA data from 2025-10-15 to 2025-10-21
+2026-02-10 17:11:06 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-10-15_2025-10-21.csv
+2026-02-10 17:11:06 | __main__ | INFO | Fetching MTA data from 2025-10-22 to 2025-10-28
+2026-02-10 17:11:07 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-10-22_2025-10-28.csv
+2026-02-10 17:11:07 | __main__ | INFO | Fetching MTA data from 2025-10-29 to 2025-11-04
+2026-02-10 17:11:08 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-10-29_2025-11-04.csv
+2026-02-10 17:11:09 | __main__ | INFO | Fetching MTA data from 2025-11-05 to 2025-11-11
+2026-02-10 17:11:10 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-11-05_2025-11-11.csv
+2026-02-10 17:11:10 | __main__ | INFO | Fetching MTA data from 2025-11-12 to 2025-11-18
+2026-02-10 17:11:11 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-11-12_2025-11-18.csv
+2026-02-10 17:11:11 | __main__ | INFO | Fetching MTA data from 2025-11-19 to 2025-11-25
+2026-02-10 17:11:14 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-11-19_2025-11-25.csv
+2026-02-10 17:11:14 | __main__ | INFO | Fetching MTA data from 2025-11-26 to 2025-12-02
+2026-02-10 17:11:15 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/2025-11-26_2025-12-02.csv
+2026-02-10 17:11:15 | __main__ | INFO | Fetching MTA data from 2025-12-03 to 2025-12-09
+2026-02-10 17:17:19 | __main__ | INFO | No watermark found. This is the first run.
+2026-02-10 17:17:19 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2026-02-04
+2026-02-10 17:17:26 | __main__ | INFO | Fetched 1000 rows of data
+2026-02-10 17:17:26 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/mta_daily_ridership_2025-01-01_2025-01-03.csv
+2026-02-10 17:17:27 | __main__ | INFO | Ingestion complete.
+2026-02-10 17:23:25 | __main__ | INFO | No watermark found. This is the first run.
+2026-02-10 17:23:25 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2026-02-04
+2026-02-10 17:23:40 | __main__ | INFO | Fetched 1001 rows (offset 0)
+2026-02-10 17:23:47 | __main__ | INFO | Fetched 1000 rows (offset 1000)
+2026-02-10 17:23:55 | __main__ | INFO | Fetched 1000 rows (offset 2000)
+2026-02-10 17:24:02 | __main__ | INFO | Fetched 1000 rows (offset 3000)
+2026-02-10 17:24:09 | __main__ | INFO | Fetched 1000 rows (offset 4000)
+2026-02-10 17:24:17 | __main__ | INFO | Fetched 1000 rows (offset 5000)
+2026-02-10 17:24:28 | __main__ | INFO | Fetched 1000 rows (offset 6000)
+2026-02-10 17:24:35 | __main__ | INFO | Fetched 1000 rows (offset 7000)
+2026-02-10 17:24:42 | __main__ | INFO | Fetched 1000 rows (offset 8000)
+2026-02-10 17:24:48 | __main__ | INFO | Fetched 1000 rows (offset 9000)
+2026-02-10 17:24:55 | __main__ | INFO | Fetched 1000 rows (offset 10000)
+2026-02-10 17:25:02 | __main__ | INFO | Fetched 1000 rows (offset 11000)
+2026-02-10 17:25:08 | __main__ | INFO | Fetched 1000 rows (offset 12000)
+2026-02-10 17:25:15 | __main__ | INFO | Fetched 1000 rows (offset 13000)
+2026-02-10 17:25:22 | __main__ | INFO | Fetched 1000 rows (offset 14000)
+2026-02-10 17:25:29 | __main__ | INFO | Fetched 1000 rows (offset 15000)
+2026-02-10 17:25:36 | __main__ | INFO | Fetched 1000 rows (offset 16000)
+2026-02-10 17:25:47 | __main__ | INFO | Fetched 1000 rows (offset 17000)
+2026-02-10 17:26:10 | __main__ | INFO | Fetched 1000 rows (offset 18000)
+2026-02-10 17:26:46 | __main__ | INFO | Fetched 1000 rows (offset 19000)
+2026-02-10 17:26:53 | __main__ | INFO | Fetched 1000 rows (offset 20000)
+2026-02-10 17:27:01 | __main__ | INFO | Fetched 1000 rows (offset 21000)
+2026-02-10 17:27:08 | __main__ | INFO | Fetched 1000 rows (offset 22000)
+2026-02-10 17:27:15 | __main__ | INFO | Fetched 1000 rows (offset 23000)
+2026-02-10 17:27:21 | __main__ | INFO | Fetched 1000 rows (offset 24000)
+2026-02-10 17:27:28 | __main__ | INFO | Fetched 1000 rows (offset 25000)
+2026-02-10 17:27:36 | __main__ | INFO | Fetched 1000 rows (offset 26000)
+2026-02-10 17:27:42 | __main__ | INFO | Fetched 1000 rows (offset 27000)
+2026-02-10 17:27:49 | __main__ | INFO | Fetched 1000 rows (offset 28000)
+2026-02-10 17:27:56 | __main__ | INFO | Fetched 1000 rows (offset 29000)
+2026-02-10 17:28:04 | __main__ | INFO | Fetched 1000 rows (offset 30000)
+2026-02-10 17:28:10 | __main__ | INFO | Fetched 1000 rows (offset 31000)
+2026-02-10 17:28:17 | __main__ | INFO | Fetched 1000 rows (offset 32000)
+2026-02-10 17:28:24 | __main__ | INFO | Fetched 1000 rows (offset 33000)
+2026-02-10 17:28:35 | __main__ | INFO | Fetched 1000 rows (offset 34000)
+2026-02-10 17:28:42 | __main__ | INFO | Fetched 1000 rows (offset 35000)
+2026-02-10 17:28:49 | __main__ | INFO | Fetched 1000 rows (offset 36000)
+2026-02-10 17:28:55 | __main__ | INFO | Fetched 1000 rows (offset 37000)
+2026-02-10 17:29:02 | __main__ | INFO | Fetched 1000 rows (offset 38000)
+2026-02-10 17:29:09 | __main__ | INFO | Fetched 1000 rows (offset 39000)
+2026-02-10 17:29:17 | __main__ | INFO | Fetched 1000 rows (offset 40000)
+2026-02-10 17:29:29 | __main__ | INFO | Fetched 1000 rows (offset 41000)
+2026-02-10 17:29:35 | __main__ | INFO | Fetched 1000 rows (offset 42000)
+2026-02-10 17:29:42 | __main__ | INFO | Fetched 1000 rows (offset 43000)
+2026-02-10 17:29:49 | __main__ | INFO | Fetched 1000 rows (offset 44000)
+2026-02-10 17:29:56 | __main__ | INFO | Fetched 1000 rows (offset 45000)
+2026-02-10 17:30:03 | __main__ | INFO | Fetched 1000 rows (offset 46000)
+2026-02-10 17:30:10 | __main__ | INFO | Fetched 1000 rows (offset 47000)
+2026-02-10 17:30:17 | __main__ | INFO | Fetched 1000 rows (offset 48000)
+2026-02-10 17:30:24 | __main__ | INFO | Fetched 1000 rows (offset 49000)
+2026-02-10 17:30:31 | __main__ | INFO | Fetched 1000 rows (offset 50000)
+2026-02-10 17:30:38 | __main__ | INFO | Fetched 1000 rows (offset 51000)
+2026-02-10 17:30:45 | __main__ | INFO | Fetched 1000 rows (offset 52000)
+2026-02-10 17:30:52 | __main__ | INFO | Fetched 1000 rows (offset 53000)
+2026-02-10 17:31:00 | __main__ | INFO | Fetched 1000 rows (offset 54000)
+2026-02-10 17:31:07 | __main__ | INFO | Fetched 1000 rows (offset 55000)
+2026-02-10 17:31:14 | __main__ | INFO | Fetched 1000 rows (offset 56000)
+2026-02-10 17:31:21 | __main__ | INFO | Fetched 1000 rows (offset 57000)
+2026-02-10 17:31:28 | __main__ | INFO | Fetched 1000 rows (offset 58000)
+2026-02-10 17:31:35 | __main__ | INFO | Fetched 1000 rows (offset 59000)
+2026-02-10 17:31:43 | __main__ | INFO | Fetched 1000 rows (offset 60000)
+2026-02-10 17:31:50 | __main__ | INFO | Fetched 1000 rows (offset 61000)
+2026-02-10 17:31:57 | __main__ | INFO | Fetched 1000 rows (offset 62000)
+2026-02-10 17:32:04 | __main__ | INFO | Fetched 1000 rows (offset 63000)
+2026-02-10 17:32:11 | __main__ | INFO | Fetched 1000 rows (offset 64000)
+2026-02-10 17:32:18 | __main__ | INFO | Fetched 1000 rows (offset 65000)
+2026-02-10 17:32:25 | __main__ | INFO | Fetched 1000 rows (offset 66000)
+2026-02-10 17:32:32 | __main__ | INFO | Fetched 1000 rows (offset 67000)
+2026-02-10 17:32:42 | __main__ | INFO | Fetched 1000 rows (offset 68000)
+2026-02-10 17:32:50 | __main__ | INFO | Fetched 1000 rows (offset 69000)
+2026-02-10 17:32:57 | __main__ | INFO | Fetched 1000 rows (offset 70000)
+2026-02-10 17:33:04 | __main__ | INFO | Fetched 1000 rows (offset 71000)
+2026-02-10 17:33:11 | __main__ | INFO | Fetched 1000 rows (offset 72000)
+2026-02-10 17:33:19 | __main__ | INFO | Fetched 1000 rows (offset 73000)
+2026-02-10 17:33:26 | __main__ | INFO | Fetched 1000 rows (offset 74000)
+2026-02-10 17:33:33 | __main__ | INFO | Fetched 1000 rows (offset 75000)
+2026-02-10 17:33:40 | __main__ | INFO | Fetched 1000 rows (offset 76000)
+2026-02-10 17:33:47 | __main__ | INFO | Fetched 1000 rows (offset 77000)
+2026-02-10 17:33:54 | __main__ | INFO | Fetched 1000 rows (offset 78000)
+2026-02-10 17:34:02 | __main__ | INFO | Fetched 1000 rows (offset 79000)
+2026-02-10 17:34:09 | __main__ | INFO | Fetched 1000 rows (offset 80000)
+2026-02-10 17:34:16 | __main__ | INFO | Fetched 1000 rows (offset 81000)
+2026-02-10 17:34:23 | __main__ | INFO | Fetched 1000 rows (offset 82000)
+2026-02-10 17:34:31 | __main__ | INFO | Fetched 1000 rows (offset 83000)
+2026-02-10 17:34:38 | __main__ | INFO | Fetched 1000 rows (offset 84000)
+2026-02-10 17:34:45 | __main__ | INFO | Fetched 1000 rows (offset 85000)
+2026-02-10 17:34:52 | __main__ | INFO | Fetched 1000 rows (offset 86000)
+2026-02-10 17:34:59 | __main__ | INFO | Fetched 1000 rows (offset 87000)
+2026-02-10 17:35:08 | __main__ | INFO | Fetched 1000 rows (offset 88000)
+2026-02-10 17:35:17 | __main__ | INFO | Fetched 1000 rows (offset 89000)
+2026-02-10 17:35:25 | __main__ | INFO | Fetched 1000 rows (offset 90000)
+2026-02-10 17:35:32 | __main__ | INFO | Fetched 1000 rows (offset 91000)
+2026-02-10 17:35:39 | __main__ | INFO | Fetched 1000 rows (offset 92000)
+2026-02-10 17:35:47 | __main__ | INFO | Fetched 1000 rows (offset 93000)
+2026-02-10 17:35:54 | __main__ | INFO | Fetched 1000 rows (offset 94000)
+2026-02-10 17:36:01 | __main__ | INFO | Fetched 1000 rows (offset 95000)
+2026-02-10 17:36:09 | __main__ | INFO | Fetched 1000 rows (offset 96000)
+2026-02-10 17:36:17 | __main__ | INFO | Fetched 1000 rows (offset 97000)
+2026-02-10 17:36:25 | __main__ | INFO | Fetched 1000 rows (offset 98000)
+2026-02-10 17:36:32 | __main__ | INFO | Fetched 1000 rows (offset 99000)
+2026-02-10 17:36:39 | __main__ | INFO | Fetched 1000 rows (offset 100000)
+2026-02-10 17:36:47 | __main__ | INFO | Fetched 1000 rows (offset 101000)
+2026-02-10 17:36:59 | __main__ | INFO | Fetched 1000 rows (offset 102000)
+2026-02-10 17:37:06 | __main__ | INFO | Fetched 1000 rows (offset 103000)
+2026-02-10 17:37:14 | __main__ | INFO | Fetched 1000 rows (offset 104000)
+2026-02-10 17:37:21 | __main__ | INFO | Fetched 1000 rows (offset 105000)
+2026-02-10 17:37:29 | __main__ | INFO | Fetched 1000 rows (offset 106000)
+2026-02-10 17:37:36 | __main__ | INFO | Fetched 1000 rows (offset 107000)
+2026-02-10 17:37:44 | __main__ | INFO | Fetched 1000 rows (offset 108000)
+2026-02-10 17:40:15 | __main__ | INFO | No watermark found. This is the first run.
+2026-02-10 17:40:15 | __main__ | INFO | Fetching MTA data from 2025-01-01 to 2026-02-04
+2026-02-10 17:41:08 | __main__ | INFO | Fetched 165648 rows (offset 0)
+2026-02-10 17:41:09 | __main__ | INFO | Total rows fetched: 165647
+2026-02-10 17:41:11 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/mta_daily_ridership_2025-01-01T00:00:00.000_2026-01-29T00:00:00.000.csv
+2026-02-10 17:41:12 | __main__ | INFO | Ingestion complete.
+2026-02-10 17:52:54 | __main__ | INFO | No watermark found. This is the first run.
+2026-02-10 17:52:54 | __main__ | INFO | Starting ingestion from 2025-01-01 to 2026-02-04
+2026-02-10 17:53:55 | __main__ | INFO | Fetched 165648 rows (offset 0)
+2026-02-10 17:53:55 | __main__ | INFO | Total rows fetched: 165647
+2026-02-10 17:53:55 | __main__ | INFO | Fetched data from 2025-01-01 to 2026-01-29 (actual)
+2026-02-10 17:53:58 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/mta_daily_ridership_2025-01-01_2026-01-29.csv
+2026-02-10 17:53:58 | __main__ | INFO | Ingestion complete. File uploaded for 2025-01-01 to 2026-01-29
+2026-02-11 10:05:44 | __main__ | INFO | Starting weather ingestion
+2026-02-11 10:05:44 | __main__ | INFO | First weather run detected
+2026-02-11 10:05:44 | __main__ | INFO | Fetching weather from 2025-01-01 to 2026-01-29
+2026-02-11 10:05:46 | __main__ | INFO | Fetched 394 weather rows
+2026-02-11 10:05:46 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/historical/weather_2025-01-01_2026-01-29.csv
+2026-02-11 10:05:47 | __main__ | INFO | Fetching weather from 2026-02-11 to 2026-02-18
+2026-02-11 10:05:47 | __main__ | INFO | Fetched 8 weather rows
+2026-02-11 10:05:47 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/forecast/weather_forecast_run_2026-02-11.csv
+2026-02-11 10:05:47 | __main__ | INFO | Weather ingestion complete
+2026-02-11 10:07:58 | __main__ | INFO | Starting weather ingestion
+2026-02-11 10:07:58 | __main__ | INFO | First weather run detected
+2026-02-11 10:07:58 | __main__ | INFO | Fetching weather from 2025-01-01 to 2026-01-29
+2026-02-11 10:08:00 | __main__ | INFO | Fetched 394 weather rows
+2026-02-11 10:08:00 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/historical/weather_2025-01-01_2026-01-29.csv
+2026-02-11 10:08:00 | __main__ | INFO | Fetching weather from 2026-02-11 to 2026-02-18
+2026-02-11 10:08:00 | __main__ | INFO | Fetched 8 weather rows
+2026-02-11 10:08:00 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/forecast/weather_forecast_run_2026-02-11.csv
+2026-02-11 10:08:00 | __main__ | INFO | Forecast weather stored for 2026-02-11 to 2026-02-18
+2026-02-11 10:08:00 | __main__ | INFO | Weather ingestion complete
+2026-02-11 10:08:45 | __main__ | INFO | Starting weather ingestion
+2026-02-11 10:08:46 | __main__ | INFO | First weather run detected
+2026-02-11 10:08:46 | __main__ | INFO | Fetching weather from 2025-01-01 to 2026-01-29
+2026-02-11 10:35:08 | __main__ | INFO | Starting weather ingestion
+2026-02-11 10:35:08 | __main__ | INFO | First weather run detected
+2026-02-11 10:35:08 | __main__ | INFO | Fetching weather from 2025-01-01 to 2026-01-29
+2026-02-11 10:35:09 | __main__ | INFO | Fetched 394 weather rows
+2026-02-11 10:35:09 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/historical/weather_2025-01-01_2026-01-29.csv
+2026-02-11 10:35:09 | __main__ | INFO | Historical weather stored: 2025-01-01 to 2026-01-29
+2026-02-11 10:35:09 | __main__ | INFO | Fetching weather from 2026-02-11 to 2026-02-18
+2026-02-11 10:35:10 | __main__ | INFO | Fetched 8 weather rows
+2026-02-11 10:35:10 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/forecast/weather_forecast_run_2026-02-11.csv
+2026-02-11 10:35:10 | __main__ | INFO | Forecast weather stored for 2026-02-11 to 2026-02-18
+2026-02-11 10:35:10 | __main__ | INFO | Weather ingestion complete
+2026-02-13 15:19:06 | __main__ | INFO | No Silver file found. Running full build.
+2026-02-13 15:19:07 | __main__ | INFO | Processing 1 MTA files.
+2026-02-13 15:19:07 | __main__ | INFO | Downloading: bronze/mta/mta_daily_ridership_2025-01-01_2026-01-29.csv
+2026-02-13 15:19:12 | __main__ | INFO | Processing 1 weather files.
+2026-02-13 15:19:12 | __main__ | INFO | Downloading: bronze/weather/historical/weather_2025-01-01_2026-01-29.csv
+2026-02-13 15:19:12 | __main__ | INFO | Merging 165647 MTA rows with weather.
+2026-02-13 15:54:28 | __main__ | INFO | No Silver file found. Running full build.
+2026-02-13 15:54:28 | __main__ | INFO | Processing 1 MTA files.
+2026-02-13 15:54:28 | __main__ | INFO | Downloading: bronze/mta/mta_daily_ridership_2025-01-01_2026-01-29.csv
+2026-02-13 15:54:34 | __main__ | INFO | Processing 1 weather files.
+2026-02-13 15:54:34 | __main__ | INFO | Downloading: bronze/weather/historical/weather_2025-01-01_2026-01-29.csv
+2026-02-13 15:54:34 | __main__ | INFO | Merging 165647 MTA rows with weather.
+2026-02-13 15:54:35 | __main__ | INFO | Silver updated successfully.
+2026-02-13 15:54:35 | __main__ | INFO | Total rows: 165647
+2026-02-13 15:54:35 | __main__ | INFO | Latest date: 2026-01-29
+2026-02-13 16:55:40 | __main__ | INFO | No Silver file found. Running full build.
+2026-02-13 16:55:40 | __main__ | INFO | Processing 1 MTA files.
+2026-02-13 16:55:40 | __main__ | INFO | Downloading: bronze/mta/mta_daily_ridership_2025-01-01_2026-01-29.csv
+2026-02-13 16:55:41 | __main__ | INFO | Processing 1 weather files.
+2026-02-13 16:55:41 | __main__ | INFO | Downloading: bronze/weather/historical/weather_2025-01-01_2026-01-29.csv
+2026-02-13 16:55:41 | __main__ | INFO | Merging 165647 MTA rows with weather.
+2026-02-13 16:55:42 | __main__ | INFO | Silver updated successfully.
+2026-02-13 16:55:42 | __main__ | INFO | Total rows: 165647
+2026-02-13 16:55:42 | __main__ | INFO | Latest date: 2026-01-29

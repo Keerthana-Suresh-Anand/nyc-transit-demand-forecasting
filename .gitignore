@@ -2,8 +2,7 @@
 .env
 
 # Data
-data/**
-!data/
+data/silver/*
 !data/**/*.dvc
 *.csv
 *.parquet

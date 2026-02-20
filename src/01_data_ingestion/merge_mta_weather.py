@@ -190,7 +190,7 @@ def merge_mta_weather_incremental():
 
     df_final.to_parquet(SILVER_LOCAL_PATH, index=False, engine="pyarrow")
 
-    logger.info(f"Silver updated successfully.")
+    logger.info("Silver updated successfully.")
     logger.info(f"Total rows: {len(df_final)}")
     logger.info(f"Latest date: {df_final['transit_date'].max().date()}")
 

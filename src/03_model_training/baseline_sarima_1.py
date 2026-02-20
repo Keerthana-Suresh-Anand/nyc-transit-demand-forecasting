@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
@@ -49,7 +48,7 @@ plt.close()
 mae = mean_absolute_error(test, y_pred)
 rmse = root_mean_squared_error(test, y_pred)
 
-print(f"--- Baseline Performance ---")
+print("--- Baseline Performance ---")
 print(f"MAE: {mae:.4f} million riders")
 print(f"RMSE: {rmse:.4f} million riders")
 

@@ -19,6 +19,14 @@ DATA_PATH = "data/gold/mta_sarima.parquet"
 def log_model_run(run_name, model_type, params, y_true, y_pred, results_obj=None):
     """Logs parameters, metrics, forecasts, diagnostics, and custom residual plots."""
     with mlflow.start_run(run_name=run_name):
+        latest_data_date = df.index.max().strftime("%Y-%m-%d")
+        total_days = len(df)
+
+        # Set tags for better organization and filtering in MLflow UI
+        mlflow.set_tag("data_version_date", latest_data_date)
+        mlflow.set_tag("dataset_row_count", total_days)
+        mlflow.set_tag("project_phase", "EDA_Incremental_Update")
+
         # --- DATA REPRODUCIBILITY ---
         mlflow.log_artifact(DATA_PATH)
         mlflow.log_param("model_type", model_type)
@@ -156,4 +164,4 @@ log_model_run(
     model_tuned,
 )
 
-print("\n🚀 All models logged.")
+print("\n All models logged.")

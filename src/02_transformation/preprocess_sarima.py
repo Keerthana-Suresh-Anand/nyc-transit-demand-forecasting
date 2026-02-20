@@ -1,6 +1,5 @@
 import pandas as pd
 import holidays
-import numpy as np
 import os
 
 # 1. Load Data

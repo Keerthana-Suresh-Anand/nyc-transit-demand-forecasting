@@ -308,3 +308,27 @@
 2026-02-13 16:55:42 | __main__ | INFO | Silver updated successfully.
 2026-02-13 16:55:42 | __main__ | INFO | Total rows: 165647
 2026-02-13 16:55:42 | __main__ | INFO | Latest date: 2026-01-29
+2026-02-20 16:44:33 | __main__ | INFO | Fetched 2969 rows (offset 0)
+2026-02-20 16:44:33 | __main__ | INFO | Total rows fetched: 2968
+2026-02-20 16:44:33 | __main__ | INFO | Fetched data from 2026-01-30 to 2026-02-05 (actual)
+2026-02-20 16:44:33 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/mta/mta_daily_ridership_2026-01-30_2026-02-05.csv
+2026-02-20 16:44:33 | __main__ | INFO | Ingestion complete. File uploaded for 2026-01-30 to 2026-02-05
+2026-02-20 16:45:14 | __main__ | INFO | Starting weather ingestion
+2026-02-20 16:45:15 | __main__ | INFO | Fetching weather from 2026-01-30 to 2026-02-05
+2026-02-20 16:45:15 | __main__ | INFO | Fetched 7 weather rows
+2026-02-20 16:45:15 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/historical/weather_2026-01-30_2026-02-05.csv
+2026-02-20 16:45:15 | __main__ | INFO | Historical weather stored: 2026-01-30 to 2026-02-05
+2026-02-20 16:45:15 | __main__ | INFO | Fetching weather from 2026-02-20 to 2026-02-27
+2026-02-20 16:45:15 | __main__ | INFO | Fetched 8 weather rows
+2026-02-20 16:45:15 | __main__ | INFO | Uploaded: s3://transit-ml/bronze/weather/forecast/weather_forecast_run_2026-02-20.csv
+2026-02-20 16:45:15 | __main__ | INFO | Forecast weather stored for 2026-02-20 to 2026-02-27
+2026-02-20 16:45:15 | __main__ | INFO | Weather ingestion complete
+2026-02-20 16:48:08 | __main__ | INFO | Existing Silver found. Latest date: 2026-01-29
+2026-02-20 16:48:08 | __main__ | INFO | Processing 1 MTA files.
+2026-02-20 16:48:08 | __main__ | INFO | Downloading: bronze/mta/mta_daily_ridership_2026-01-30_2026-02-05.csv
+2026-02-20 16:48:09 | __main__ | INFO | Processing 1 weather files.
+2026-02-20 16:48:09 | __main__ | INFO | Downloading: bronze/weather/historical/weather_2026-01-30_2026-02-05.csv
+2026-02-20 16:48:09 | __main__ | INFO | Merging 2968 MTA rows with weather.
+2026-02-20 16:48:10 | __main__ | INFO | Silver updated successfully.
+2026-02-20 16:48:10 | __main__ | INFO | Total rows: 168615
+2026-02-20 16:48:10 | __main__ | INFO | Latest date: 2026-02-05

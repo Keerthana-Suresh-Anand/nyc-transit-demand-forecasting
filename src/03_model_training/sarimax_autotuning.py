@@ -2,7 +2,11 @@ import pandas as pd
 import mlflow
 import pmdarima as pm
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from sklearn.metrics import mean_absolute_error, root_mean_squared_error
+from sklearn.metrics import (
+    mean_absolute_error,
+    root_mean_squared_error,
+    mean_absolute_percentage_error,
+)
 from sklearn.preprocessing import MinMaxScaler
 
 # 1. Setup
@@ -58,9 +62,16 @@ best_seasonal = auto_model.seasonal_order
 
 print(f"\n✅ Best Model Found: SARIMAX{best_order}x{best_seasonal}")
 
-# 4. Log the "Champion" to MLflow
+# 4. Log the model to MLflow
 with mlflow.start_run(run_name="Model_04_AutoARIMA_Champion"):
     # Re-fit the best model to get the full results object for diagnostics
+    latest_data_date = df.index.max().strftime("%Y-%m-%d")
+    total_days = len(df)
+
+    mlflow.set_tag("data_version_date", latest_data_date)
+    mlflow.set_tag("dataset_row_count", total_days)
+    mlflow.set_tag("project_phase", "Champion_Model_Search")
+
     final_model = SARIMAX(
         train_y,
         exog=train_exog,
@@ -75,6 +86,7 @@ with mlflow.start_run(run_name="Model_04_AutoARIMA_Champion"):
     # Metrics
     mae = mean_absolute_error(test_y, y_pred)
     rmse = root_mean_squared_error(test_y, y_pred)
+    mape = mean_absolute_percentage_error(test_y, y_pred)
 
     # Logging
     mlflow.log_artifact(DATA_PATH)
@@ -85,7 +97,7 @@ with mlflow.start_run(run_name="Model_04_AutoARIMA_Champion"):
             "search_method": "stepwise_auto_arima",
         }
     )
-    mlflow.log_metrics({"mae": mae, "rmse": rmse, "aic": final_model.aic})
+    mlflow.log_metrics({"mae": mae, "rmse": rmse, "mape": mape, "aic": final_model.aic})
 
     # Forecast Plot
     import matplotlib.pyplot as plt

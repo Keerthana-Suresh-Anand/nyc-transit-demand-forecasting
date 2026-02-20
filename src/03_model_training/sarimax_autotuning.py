@@ -1,11 +1,9 @@
 import pandas as pd
-import numpy as np
 import mlflow
 import pmdarima as pm
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
-import os
 
 # 1. Setup
 mlflow.set_experiment("MTA_Ridership_Forecasting")

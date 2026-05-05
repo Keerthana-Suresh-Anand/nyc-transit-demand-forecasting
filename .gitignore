@@ -1,8 +1,9 @@
 # Secrets
 .env
 
-# Claude Code local memory (personal tooling, not part of the project)
+# Claude Code local memory and config (personal tooling, not part of the project)
 .claude/
+CLAUDE.md
 
 # Data files (DVC-tracked; commit .dvc files instead)
 data/silver/*.parquet
@@ -36,4 +37,3 @@ build/
 env/
 venv/
 .venv/
-CLAUDE.md

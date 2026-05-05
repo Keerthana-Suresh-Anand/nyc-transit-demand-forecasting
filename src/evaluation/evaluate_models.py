@@ -90,7 +90,6 @@ def run() -> str:
     xgb_mae, xgb_rmse, xgb_mape, xgb_bias = evaluate_xgboost(client)
 
     winner = SARIMAX_MODEL_NAME if sarimax_mae <= xgb_mae else XGBOOST_MODEL_NAME
-    loser = XGBOOST_MODEL_NAME if winner == SARIMAX_MODEL_NAME else SARIMAX_MODEL_NAME
 
     logger.info(f"Champion: {winner} (MAE {min(sarimax_mae, xgb_mae):.4f}M)")
 
@@ -104,16 +103,16 @@ def run() -> str:
         mlflow.log_param("champion_model", winner)
         mlflow.log_param("evaluation_date", str(date.today()))
 
-    # Keep Production stage for winner; move loser to Staging
-    for model_name, target_stage in [(winner, "Production"), (loser, "Staging")]:
+    # Both models go to Production — ensemble uses both; winner is logged as metadata only
+    for model_name in [SARIMAX_MODEL_NAME, XGBOOST_MODEL_NAME]:
         versions = client.search_model_versions(f"name='{model_name}'")
         if versions:
             latest = max(int(v.version) for v in versions)
             client.transition_model_version_stage(
-                name=model_name, version=latest, stage=target_stage,
+                name=model_name, version=latest, stage="Production",
                 archive_existing_versions=True,
             )
-            logger.info(f"{model_name} v{latest} → {target_stage}")
+            logger.info(f"{model_name} v{latest} → Production")
 
     return winner
 

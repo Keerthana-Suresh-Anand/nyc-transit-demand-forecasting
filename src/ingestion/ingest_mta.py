@@ -7,13 +7,19 @@ import pandas as pd
 import requests
 
 from src.utils.config import (
-    MTA_BASE_URL, MTA_LAG_DAYS, MTA_START_DATE,
-    NY_APP_TOKEN, S3_MTA_PREFIX, S3_MTA_WATERMARK,
+    MTA_BASE_URL,
+    MTA_LAG_DAYS,
+    MTA_START_DATE,
+    NY_APP_TOKEN,
+    S3_MTA_PREFIX,
+    S3_MTA_WATERMARK,
 )
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
-    get_s3_client, get_end_date_from_filename, read_watermark,
-    write_watermark, write_s3_csv,
+    get_s3_client,
+    read_watermark,
+    write_s3_csv,
+    write_watermark,
 )
 
 logger = get_logger(__name__)

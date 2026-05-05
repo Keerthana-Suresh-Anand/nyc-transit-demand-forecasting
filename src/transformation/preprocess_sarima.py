@@ -1,7 +1,7 @@
 import holidays
 import pandas as pd
 
-from src.utils.config import SILVER_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
+from src.utils.config import GOLD_SARIMA_LOCAL_PATH, SILVER_LOCAL_PATH
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

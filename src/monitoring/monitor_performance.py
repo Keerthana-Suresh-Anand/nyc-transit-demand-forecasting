@@ -9,7 +9,6 @@ Post-hoc performance monitor.
 6. If drift is critical OR rolling MAE exceeds threshold, writes retrain_flag.json.
 """
 import io
-import json
 from datetime import date
 
 import numpy as np

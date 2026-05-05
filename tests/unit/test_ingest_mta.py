@@ -2,8 +2,6 @@
 from datetime import date
 from urllib.parse import unquote
 
-import pytest
-
 from src.ingestion.ingest_mta import build_soql_query
 
 

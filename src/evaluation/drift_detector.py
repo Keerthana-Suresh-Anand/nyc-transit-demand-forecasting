@@ -2,7 +2,6 @@
 Population Stability Index (PSI) drift detection + rolling MAE threshold check.
 Writes a drift report to S3. If drift is critical, also writes a retrain flag.
 """
-import json
 from datetime import date
 
 import numpy as np

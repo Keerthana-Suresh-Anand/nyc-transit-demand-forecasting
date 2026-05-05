@@ -11,8 +11,11 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error,
 from sklearn.model_selection import TimeSeriesSplit
 
 from src.utils.config import (
-    GOLD_ML_LOCAL_PATH, MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI,
-    REPORTS_DIR, XGBOOST_MODEL_NAME,
+    GOLD_ML_LOCAL_PATH,
+    MLFLOW_EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    REPORTS_DIR,
+    XGBOOST_MODEL_NAME,
 )
 from src.utils.logger import get_logger
 
@@ -118,7 +121,7 @@ def run() -> None:
         plt.close(fig_shap)
         mlflow.log_artifact(str(shap_path))
 
-        model_info = mlflow.xgboost.log_model(
+        mlflow.xgboost.log_model(
             final_model, "xgboost_model",
             registered_model_name=XGBOOST_MODEL_NAME,
         )

@@ -1,7 +1,7 @@
 """Tests for SARIMA preprocessing: holidays, snow_lag1 shift, no date gaps."""
+import holidays
 import pandas as pd
 import pytest
-import holidays
 
 
 class TestSarimaPreprocessing:

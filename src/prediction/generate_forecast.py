@@ -13,14 +13,23 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
 from src.utils.config import (
-    GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH,
+    GOLD_ML_LOCAL_PATH,
+    GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_TRACKING_URI,
-    S3_FORECAST_PREFIX, S3_LATEST_FORECAST_KEY, S3_WEATHER_FORECAST_PREFIX,
-    SARIMAX_MODEL_NAME, XGBOOST_MODEL_NAME,
-    WEATHER_FORECAST_DAYS,
+    S3_FORECAST_PREFIX,
+    S3_LATEST_FORECAST_KEY,
+    S3_WEATHER_FORECAST_PREFIX,
+    SARIMAX_MODEL_NAME,
+    XGBOOST_MODEL_NAME,
 )
 from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, list_s3_files, read_s3_csv, write_s3_json, write_s3_parquet
+from src.utils.s3_helpers import (
+    get_s3_client,
+    list_s3_files,
+    read_s3_csv,
+    write_s3_json,
+    write_s3_parquet,
+)
 
 warnings.filterwarnings("ignore")
 logger = get_logger(__name__)
@@ -45,7 +54,6 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame) -> pd.
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/Production")
 
-    y = df_sarima["daily_ridership"] / 1_000_000
     scaler = MinMaxScaler()
     scaler.fit(df_sarima[SARIMAX_EXOG_COLS])
 

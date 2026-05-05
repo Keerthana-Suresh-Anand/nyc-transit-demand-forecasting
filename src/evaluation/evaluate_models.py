@@ -13,9 +13,12 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error,
 from sklearn.preprocessing import MinMaxScaler
 
 from src.utils.config import (
-    GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH,
-    MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI,
-    SARIMAX_MODEL_NAME, XGBOOST_MODEL_NAME,
+    GOLD_ML_LOCAL_PATH,
+    GOLD_SARIMA_LOCAL_PATH,
+    MLFLOW_EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    SARIMAX_MODEL_NAME,
+    XGBOOST_MODEL_NAME,
 )
 from src.utils.logger import get_logger
 
@@ -34,13 +37,10 @@ def evaluate_sarimax(client: MlflowClient) -> tuple[float, float, float]:
 
     train_idx = y.iloc[:-TEST_DAYS].index
     test_idx = y.iloc[-TEST_DAYS:].index
-    train_y, test_y = y.loc[train_idx], y.loc[test_idx]
+    test_y = y.loc[test_idx]
 
     scaler = MinMaxScaler()
-    train_exog = pd.DataFrame(
-        scaler.fit_transform(df.loc[train_idx, SARIMAX_EXOG_COLS]),
-        index=train_idx, columns=SARIMAX_EXOG_COLS,
-    )
+    scaler.fit(df.loc[train_idx, SARIMAX_EXOG_COLS])
     test_exog = pd.DataFrame(
         scaler.transform(df.loc[test_idx, SARIMAX_EXOG_COLS]),
         index=test_idx, columns=SARIMAX_EXOG_COLS,

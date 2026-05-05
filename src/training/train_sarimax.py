@@ -12,8 +12,11 @@ from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from src.utils.config import (
-    GOLD_SARIMA_LOCAL_PATH, MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI,
-    REPORTS_DIR, SARIMAX_MODEL_NAME,
+    GOLD_SARIMA_LOCAL_PATH,
+    MLFLOW_EXPERIMENT_NAME,
+    MLFLOW_TRACKING_URI,
+    REPORTS_DIR,
+    SARIMAX_MODEL_NAME,
 )
 from src.utils.logger import get_logger
 
@@ -117,7 +120,7 @@ def run() -> None:
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))
 
-        model_info = mlflow.statsmodels.log_model(
+        mlflow.statsmodels.log_model(
             final_model, "sarimax_model",
             registered_model_name=SARIMAX_MODEL_NAME,
         )

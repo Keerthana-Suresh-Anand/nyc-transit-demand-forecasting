@@ -1,6 +1,5 @@
 """Tests for drift detection: PSI values and retrain trigger logic."""
 import numpy as np
-import pytest
 
 from src.evaluation.drift_detector import compute_psi
 from src.utils.config import PSI_CRITICAL_THRESHOLD, PSI_MODERATE_THRESHOLD

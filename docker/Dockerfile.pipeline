@@ -9,7 +9,7 @@ COPY pyproject.toml .
 COPY src/ src/
 COPY pipelines/ pipelines/
 
-RUN pip install --no-cache-dir -e ".[pipeline]"
+RUN pip install --no-cache-dir ".[pipeline]"
 
 ENV RUNNING_IN_CONTAINER=true
 

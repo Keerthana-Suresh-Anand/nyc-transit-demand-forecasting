@@ -6,13 +6,13 @@ Fallback: NYC Open Data Permitted Event Information (no key required)
 
 Writes: bronze/events/events_{today}.json  — list of {name, date, venue, source}
 """
-import json
 from datetime import date, timedelta
 
 import requests
 
 from src.utils.config import (
-    S3_EVENTS_PREFIX, TICKETMASTER_API_KEY,
+    S3_EVENTS_PREFIX,
+    TICKETMASTER_API_KEY,
 )
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client, write_s3_json

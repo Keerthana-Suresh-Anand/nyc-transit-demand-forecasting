@@ -1,4 +1,4 @@
 [core]
     remote = s3remote
 ['remote "s3remote"']
-    url = s3://transit-ml/
+    url = s3://${AWS_BUCKET_NAME}/dvc-cache

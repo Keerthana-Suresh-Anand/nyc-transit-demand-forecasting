@@ -1,0 +1,64 @@
+[project]
+name = "nyc-transit-forecasting"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "pyarrow>=14.0",
+    "boto3>=1.34",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "holidays>=0.46",
+]
+
+[project.optional-dependencies]
+pipeline = [
+    "statsmodels>=0.14",
+    "pmdarima>=2.0",
+    "xgboost>=2.0",
+    "shap>=0.44",
+    "scikit-learn>=1.4",
+    "mlflow>=2.10",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "dvc[s3]>=3.0",
+]
+dashboard = [
+    "streamlit>=1.32",
+    "plotly>=5.19",
+    "boto3>=1.34",
+    "pandas>=2.1",
+    "pyarrow>=14.0",
+    "python-dotenv>=1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "moto[s3]>=5.0",
+    "requests-mock>=1.11",
+    "ruff>=0.3",
+    "s3fs>=2024.1",
+    "jupyter>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "pipelines*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

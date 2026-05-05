@@ -1,0 +1,75 @@
+name: Pipeline — Monitoring
+
+on:
+  schedule:
+    - cron: "0 8 * * *"   # Daily 08:00 UTC
+  workflow_dispatch: {}
+
+env:
+  AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+  AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}
+  AWS_BUCKET_NAME: ${{ secrets.AWS_BUCKET_NAME }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  MLFLOW_TRACKING_URI: sqlite:///mlflow.db
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[pipeline]"
+
+      - name: Download gold data from S3
+        run: |
+          mkdir -p data/gold
+          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_sarima.parquet data/gold/mta_sarima.parquet
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Run monitoring pipeline
+        run: python -m pipelines.run_monitoring
+
+      - name: Check retrain flag
+        id: retrain
+        run: |
+          python - <<'EOF'
+          import boto3, json, os, sys
+          s3 = boto3.client(
+              "s3",
+              aws_access_key_id=os.environ["AWS_ACCESS_KEY"],
+              aws_secret_access_key=os.environ["AWS_SECRET_KEY"],
+              region_name=os.environ["AWS_REGION"],
+          )
+          try:
+              obj = s3.get_object(Bucket=os.environ["AWS_BUCKET_NAME"], Key="monitoring/retrain_flag.json")
+              flag = json.loads(obj["Body"].read())
+              print(f"retrain_needed=true")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("retrain_needed=true\n")
+          except Exception:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("retrain_needed=false\n")
+          EOF
+
+      - name: Trigger training pipeline (drift detected)
+        if: steps.retrain.outputs.retrain_needed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'pipeline_training.yml',
+              ref: 'main'
+            });
+            core.info('Retrain triggered due to drift detection.');

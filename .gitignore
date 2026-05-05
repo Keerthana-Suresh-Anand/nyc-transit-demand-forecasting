@@ -1,19 +1,38 @@
 # Secrets
 .env
 
-# Data
-data/silver/*
-!data/**/*.dvc
+# Claude Code local memory (personal tooling, not part of the project)
+.claude/
+
+# Data files (DVC-tracked; commit .dvc files instead)
+data/silver/*.parquet
+data/gold/*.parquet
 *.csv
 *.parquet
-*.txt
 
-# Python/Conda clutter
+# MLflow
+mlflow.db
+mlruns/
+
+# Logs
+logs/
+
+# Reports (generated outputs)
+reports/plots/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
 .ipynb_checkpoints/
 .DS_Store
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
 
 # Environments
 env/
 venv/
+.venv/

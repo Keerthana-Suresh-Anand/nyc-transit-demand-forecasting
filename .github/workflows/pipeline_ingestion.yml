@@ -2,7 +2,7 @@ name: Pipeline — Ingestion
 
 on:
   schedule:
-    - cron: "0 14 * * 3"   # Wednesdays 14:00 UTC (after MTA 10am ET update)
+    - cron: "0 21 * * 3"   # Wednesdays 21:00 UTC / 5pm ET
   workflow_dispatch: {}
 
 env:

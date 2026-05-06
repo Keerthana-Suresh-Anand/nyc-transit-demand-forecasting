@@ -137,17 +137,20 @@ with tab1:
         ev_date = ev.get("date") or ev.get("datetime")
         ev_name = ev.get("name", "Event")
         if ev_date:
-            fig.add_vline(
-                x=str(ev_date)[:10],
-                line_dash="dash",
-                line_color="rgba(255,210,60,0.45)",
-                annotation_text=ev_name[:18],
-                annotation_font_size=9,
-                annotation_position="top",
-            )
+            try:
+                fig.add_vline(
+                    x=pd.Timestamp(str(ev_date)[:10]),
+                    line_dash="dash",
+                    line_color="rgba(255,210,60,0.45)",
+                    annotation_text=ev_name[:18],
+                    annotation_font_size=9,
+                    annotation_position="top",
+                )
+            except Exception:
+                pass
 
     fig.add_vline(
-        x=str(date.today()),
+        x=pd.Timestamp(str(date.today())),
         line_color="rgba(255,255,255,0.25)",
         annotation_text="Today",
         annotation_position="top right",
@@ -183,7 +186,7 @@ with tab1:
                 mode="lines+markers", name="Forecast Temp",
                 line=dict(color="#f4a261"),
             ))
-        fig_temp.add_vline(x=str(date.today()), line_color="rgba(255,255,255,0.2)")
+        fig_temp.add_vline(x=pd.Timestamp(str(date.today())), line_color="rgba(255,255,255,0.2)")
         fig_temp.update_layout(
             title="Temperature (°F)", height=240,
             margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
@@ -201,7 +204,7 @@ with tab1:
                 x=weather_fc["datetime"], y=weather_fc["precip"],
                 name="Forecast Precip", marker_color="#f4a261",
             ))
-        fig_precip.add_vline(x=str(date.today()), line_color="rgba(255,255,255,0.2)")
+        fig_precip.add_vline(x=pd.Timestamp(str(date.today())), line_color="rgba(255,255,255,0.2)")
         fig_precip.update_layout(
             title="Precipitation (in)", height=240,
             barmode="overlay",

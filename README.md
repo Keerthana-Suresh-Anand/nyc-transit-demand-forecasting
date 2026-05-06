@@ -1,5 +1,7 @@
 # Weather-Driven Urban Transit Demand Forecasting
 
+**Live dashboard:** https://nyc-transit-forecasting.streamlit.app/
+
 An end-to-end ML system that forecasts daily NYC subway ridership 14 days ahead using weather as an exogenous feature. Built to demonstrate production ML engineering practices: automated pipelines, model registry, drift monitoring, and a live dashboard.
 
 ---

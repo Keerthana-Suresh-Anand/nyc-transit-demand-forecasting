@@ -27,17 +27,18 @@ jobs:
         with:
           ref: main
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
+      - name: Install DVC
+        run: pip install "dvc[s3]>=3.0"
 
-      - name: Install dependencies
-        run: pip install -e ".[pipeline]"
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Download data and MLflow state from S3
         run: |
-          mkdir -p data/silver data/gold
+          mkdir -p data/silver data/gold mlruns
           aws s3 cp s3://$AWS_BUCKET_NAME/silver/mta_weather_merged.parquet \
             data/silver/mta_weather_merged.parquet
           aws s3 cp s3://$AWS_BUCKET_NAME/mlflow/mlflow.db \
@@ -49,7 +50,20 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Run training pipeline
-        run: python -m pipelines.run_training
+        run: |
+          touch mlflow.db
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest
+          docker run --rm \
+            -v "$(pwd)/data:/app/data" \
+            -v "$(pwd)/mlflow.db:/app/mlflow.db" \
+            -v "$(pwd)/mlruns:/app/mlruns" \
+            -e AWS_ACCESS_KEY="$AWS_ACCESS_KEY" \
+            -e AWS_SECRET_KEY="$AWS_SECRET_KEY" \
+            -e AWS_BUCKET_NAME="$AWS_BUCKET_NAME" \
+            -e AWS_REGION="$AWS_REGION" \
+            -e MLFLOW_TRACKING_URI="sqlite:///mlflow.db" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest \
+            -m pipelines.run_training
 
       - name: Snapshot gold data with DVC
         run: |

@@ -25,13 +25,14 @@ jobs:
         with:
           ref: main
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
+      - name: Install DVC
+        run: pip install "dvc[s3]>=3.0"
 
-      - name: Install dependencies
-        run: pip install -e ".[pipeline]"
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Download existing silver from S3
         run: |
@@ -44,7 +45,19 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Run ingestion pipeline
-        run: python -m pipelines.run_ingestion
+        run: |
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest
+          docker run --rm \
+            -v "$(pwd)/data:/app/data" \
+            -e AWS_ACCESS_KEY="$AWS_ACCESS_KEY" \
+            -e AWS_SECRET_KEY="$AWS_SECRET_KEY" \
+            -e AWS_BUCKET_NAME="$AWS_BUCKET_NAME" \
+            -e AWS_REGION="$AWS_REGION" \
+            -e NY_APP_TOKEN="$NY_APP_TOKEN" \
+            -e WEATHER_API_KEY="$WEATHER_API_KEY" \
+            -e TICKETMASTER_API_KEY="$TICKETMASTER_API_KEY" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest \
+            -m pipelines.run_ingestion
 
       - name: Snapshot silver data with DVC
         run: |

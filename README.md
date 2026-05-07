@@ -101,6 +101,8 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 Three tabs — accessible at the Streamlit Community Cloud URL without any local setup:
 
+> `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`.
+
 - **Forecast** — 90-day historical actuals + 14-day ensemble forecast with confidence intervals, SARIMAX and XGBoost lines, NYC event annotations, weather context
 - **Model Performance** — past forecasts vs actuals table, weekly MAE bar chart, PSI drift indicator, SHAP feature importance
 - **Pipeline Status** — last run dates for each pipeline, data freshness indicator, schedule reference

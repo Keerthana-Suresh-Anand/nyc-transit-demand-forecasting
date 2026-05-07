@@ -16,13 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        run: pip install -e ".[pipeline]"
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Download data and MLflow state from S3
         run: |
@@ -37,4 +35,16 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Run prediction pipeline
-        run: python -m pipelines.run_prediction
+        run: |
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest
+          docker run --rm \
+            -v "$(pwd)/data:/app/data" \
+            -v "$(pwd)/mlflow.db:/app/mlflow.db" \
+            -v "$(pwd)/mlruns:/app/mlruns" \
+            -e AWS_ACCESS_KEY="$AWS_ACCESS_KEY" \
+            -e AWS_SECRET_KEY="$AWS_SECRET_KEY" \
+            -e AWS_BUCKET_NAME="$AWS_BUCKET_NAME" \
+            -e AWS_REGION="$AWS_REGION" \
+            -e MLFLOW_TRACKING_URI="sqlite:///mlflow.db" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest \
+            -m pipelines.run_prediction

@@ -4,7 +4,6 @@ import mlflow
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
-import shap
 import xgboost as xgb
 from mlflow import MlflowClient
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
@@ -110,6 +109,7 @@ def run() -> None:
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))
 
+        import shap
         logger.info("Computing SHAP values")
         explainer = shap.TreeExplainer(final_model)
         shap_values = explainer.shap_values(X_test)

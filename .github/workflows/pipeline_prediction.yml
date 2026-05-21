@@ -24,11 +24,15 @@ jobs:
 
       - name: Download data and MLflow state from S3
         run: |
-          mkdir -p data/silver data/gold
+          mkdir -p data/silver data/gold mlruns
           aws s3 cp s3://$AWS_BUCKET_NAME/silver/mta_weather_merged.parquet \
             data/silver/mta_weather_merged.parquet
           aws s3 cp s3://$AWS_BUCKET_NAME/mlflow/mlflow.db mlflow.db
           aws s3 sync s3://$AWS_BUCKET_NAME/mlflow/mlruns/ mlruns/
+          if [ -z "$(ls -A mlruns/)" ]; then
+            echo "ERROR: mlruns/ is empty after S3 sync — run the training pipeline first"
+            exit 1
+          fi
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}

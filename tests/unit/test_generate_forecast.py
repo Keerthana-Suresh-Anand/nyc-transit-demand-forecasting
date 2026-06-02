@@ -58,7 +58,7 @@ class TestXGBoostForecast:
         with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
-            result = xgboost_forecast(df_ml, weather)
+            result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
         assert len(result) == FORECAST_DAYS
 
     def test_first_forecast_date_is_tomorrow(self):
@@ -78,7 +78,7 @@ class TestXGBoostForecast:
         with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
-            xgboost_forecast(df_ml, weather)
+            xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
 
         expected_first_dow = (date.today() + timedelta(days=1)).weekday()
         assert call_dates[0] == expected_first_dow
@@ -104,7 +104,7 @@ class TestXGBoostForecast:
         with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
-            xgboost_forecast(df_ml, weather)
+            xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
 
         # Step 2's lag1 must equal step 1's prediction
         assert predictions_seen[1] == pytest.approx(step1_pred)
@@ -115,6 +115,6 @@ class TestXGBoostForecast:
         with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = self._mock_model()
-            result = xgboost_forecast(df_ml, weather)
+            result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
         assert isinstance(result, np.ndarray)
         assert result.dtype.kind == "f"

@@ -76,11 +76,18 @@ with tab1:
     fc_rows = pd.DataFrame(forecast_data["forecasts"])
     fc_rows["date"] = pd.to_datetime(fc_rows["date"])
 
-    # KPI row
+    # KPI row — future_fc filters to rows that haven't passed yet
+    tomorrow = pd.Timestamp(date.today()) + pd.Timedelta(days=1)
+    future_fc = fc_rows[fc_rows["date"] >= tomorrow]
+
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Latest Actual (M)", f"{history['daily_ridership'].iloc[-1] / 1_000_000:.2f}")
-    k2.metric("Tomorrow Forecast (M)", f"{fc_rows['ensemble_forecast_M'].iloc[0]:.2f}")
-    k3.metric("7-Day Avg Forecast (M)", f"{fc_rows['ensemble_forecast_M'].iloc[:7].mean():.2f}")
+    if not future_fc.empty:
+        k2.metric("Tomorrow Forecast (M)", f"{future_fc['ensemble_forecast_M'].iloc[0]:.2f}")
+        k3.metric("7-Day Avg Forecast (M)", f"{future_fc['ensemble_forecast_M'].iloc[:7].mean():.2f}")
+    else:
+        k2.metric("Tomorrow Forecast (M)", "—")
+        k3.metric("7-Day Avg Forecast (M)", "—")
     k4.metric("Data Through", str(history.index.max().date()))
 
     st.markdown("---")
@@ -132,12 +139,17 @@ with tab1:
         marker=dict(size=5),
     ))
 
-    # Event annotations
+    # Event annotations — only within the visible chart window
+    chart_start = history.index.min()
+    chart_end = fc_rows["date"].max()
     for ev in events:
         ev_date = ev.get("date") or ev.get("datetime")
         ev_name = ev.get("name", "Event")
         if ev_date:
             x_val = str(ev_date)[:10]
+            ev_ts = pd.Timestamp(x_val)
+            if not (chart_start <= ev_ts <= chart_end):
+                continue
             fig.add_shape(
                 type="line", x0=x_val, x1=x_val, y0=0, y1=1,
                 xref="x", yref="paper",
@@ -152,7 +164,7 @@ with tab1:
     fig.add_shape(
         type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
         xref="x", yref="paper",
-        line=dict(color="rgba(255,255,255,0.25)"),
+        line=dict(color="rgba(255,255,255,0.6)"),
     )
     fig.add_annotation(
         x=str(date.today()), y=1, xref="x", yref="paper",
@@ -178,11 +190,12 @@ with tab1:
     wc1, wc2 = st.columns(2)
     with wc1:
         fig_temp = go.Figure()
-        fig_temp.add_trace(go.Scatter(
-            x=hist_30.index, y=hist_30["temp"],
-            mode="lines", name="Historical Temp",
-            line=dict(color="#4c9be8", dash="dot"),
-        ))
+        if "temp" in hist_30.columns:
+            fig_temp.add_trace(go.Scatter(
+                x=hist_30.index, y=hist_30["temp"],
+                mode="lines", name="Historical Temp",
+                line=dict(color="#4c9be8", dash="dot"),
+            ))
         if weather_fc is not None and "temp" in weather_fc.columns:
             fig_temp.add_trace(go.Scatter(
                 x=weather_fc["datetime"], y=weather_fc["temp"],
@@ -201,10 +214,11 @@ with tab1:
 
     with wc2:
         fig_precip = go.Figure()
-        fig_precip.add_trace(go.Bar(
-            x=hist_30.index, y=hist_30["precip"],
-            name="Historical Precip", marker_color="#4c9be8",
-        ))
+        if "precip" in hist_30.columns:
+            fig_precip.add_trace(go.Bar(
+                x=hist_30.index, y=hist_30["precip"],
+                name="Historical Precip", marker_color="#4c9be8",
+            ))
         if weather_fc is not None and "precip" in weather_fc.columns:
             fig_precip.add_trace(go.Bar(
                 x=weather_fc["datetime"], y=weather_fc["precip"],

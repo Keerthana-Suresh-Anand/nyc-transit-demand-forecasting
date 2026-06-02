@@ -50,7 +50,7 @@ def load_latest_weather_forecast(s3) -> pd.DataFrame:
     return df
 
 
-def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame) -> pd.Series:
+def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date) -> pd.Series:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/Production")
 
@@ -58,9 +58,9 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame) -> pd.
     scaler.fit(df_sarima[SARIMAX_EXOG_COLS])
 
     import holidays as hol
-    us_holidays = hol.US(years=[date.today().year, date.today().year + 1])
+    us_holidays = hol.US(years=[start_date.year, start_date.year + 1])
 
-    future_dates = [date.today() + timedelta(days=i + 1) for i in range(FORECAST_DAYS)]
+    future_dates = [start_date + timedelta(days=i) for i in range(FORECAST_DAYS)]
     weather_map = dict(zip(weather_fcst["datetime"], weather_fcst.itertuples()))
 
     rows = []
@@ -83,7 +83,7 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame) -> pd.
     return forecast.predicted_mean, forecast.conf_int()
 
 
-def xgboost_forecast(df_ml: pd.DataFrame, weather_fcst: pd.DataFrame) -> np.ndarray:
+def xgboost_forecast(df_ml: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date) -> np.ndarray:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.xgboost.load_model(f"models:/{XGBOOST_MODEL_NAME}/Production")
 
@@ -91,12 +91,12 @@ def xgboost_forecast(df_ml: pd.DataFrame, weather_fcst: pd.DataFrame) -> np.ndar
     df_rolling = df_ml.copy()
 
     import holidays as hol
-    us_holidays = hol.US(years=[date.today().year, date.today().year + 1])
+    us_holidays = hol.US(years=[start_date.year, start_date.year + 1])
     weather_map = dict(zip(weather_fcst["datetime"], weather_fcst.itertuples()))
 
     predictions = []
     for step in range(FORECAST_DAYS):
-        pred_date = date.today() + timedelta(days=step + 1)
+        pred_date = start_date + timedelta(days=step)
         last_row = df_rolling.iloc[-1].copy()
 
         # Build the next feature row using known future values + predicted ridership lags
@@ -145,13 +145,18 @@ def run() -> None:
     weather_fcst = load_latest_weather_forecast(s3)
     logger.info(f"Weather forecast loaded: {len(weather_fcst)} days")
 
+    # Start from the day after the last actual observation, not today, so there
+    # is no gap between the actuals line and the forecast line on the dashboard.
+    start_date = (df_sarima.index.max() + timedelta(days=1)).date()
+    logger.info(f"Forecast start date: {start_date}")
+
     logger.info("Running SARIMAX forecast")
-    sarimax_pred, conf_int = sarimax_forecast(df_sarima, weather_fcst)
+    sarimax_pred, conf_int = sarimax_forecast(df_sarima, weather_fcst, start_date)
 
     logger.info("Running XGBoost forecast")
-    xgb_pred = xgboost_forecast(df_ml, weather_fcst)
+    xgb_pred = xgboost_forecast(df_ml, weather_fcst, start_date)
 
-    future_dates = pd.date_range(start=date.today() + timedelta(days=1), periods=FORECAST_DAYS)
+    future_dates = pd.date_range(start=start_date, periods=FORECAST_DAYS)
     ensemble_pred = ENSEMBLE_SARIMAX_WEIGHT * sarimax_pred.values + ENSEMBLE_XGB_WEIGHT * xgb_pred
 
     df_forecast = pd.DataFrame({

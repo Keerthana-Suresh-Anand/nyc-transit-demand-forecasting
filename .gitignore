@@ -24,6 +24,9 @@ logs/
 # Reports (generated outputs)
 reports/plots/
 
+# Operational scripts (internal use only)
+scripts/
+
 # Python
 __pycache__/
 *.pyc

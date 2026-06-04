@@ -6,6 +6,7 @@ import pandas as pd
 import requests
 
 from src.utils.config import (
+    MTA_START_DATE,
     S3_MTA_WATERMARK,
     S3_WEATHER_FORECAST_PREFIX,
     S3_WEATHER_HIST_PREFIX,
@@ -50,7 +51,7 @@ def run() -> None:
         sys.exit(1)
 
     weather_last_date = read_watermark(s3, S3_WEATHER_WATERMARK)
-    start_date = (weather_last_date + timedelta(days=1)) if weather_last_date else date(2025, 1, 1)
+    start_date = (weather_last_date + timedelta(days=1)) if weather_last_date else date.fromisoformat(MTA_START_DATE)
     end_date = mta_last_date
 
     if start_date <= end_date:

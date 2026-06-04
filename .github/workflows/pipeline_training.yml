@@ -49,6 +49,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
+      - name: Upgrade MLflow DB schema
+        run: |
+          docker run --rm \
+            --entrypoint mlflow \
+            -v "$(pwd)/mlflow.db:/app/mlflow.db" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest \
+            db upgrade sqlite:////app/mlflow.db
+
       - name: Run training pipeline
         run: |
           touch mlflow.db

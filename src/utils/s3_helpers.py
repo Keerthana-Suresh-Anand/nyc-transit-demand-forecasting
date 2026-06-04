@@ -119,7 +119,7 @@ def download_s3_file(s3_client, key: str, local_path: Path) -> bool:
     try:
         local_path.parent.mkdir(parents=True, exist_ok=True)
         s3_client.download_file(BUCKET, key, str(local_path))
-        logger.info(f"Downloaded: s3://{BUCKET}/{key} → {local_path}")
+        logger.info(f"Downloaded: s3://{BUCKET}/{key} -> {local_path}")
         return True
     except s3_client.exceptions.ClientError as e:
         if e.response["Error"]["Code"] in ("404", "NoSuchKey"):

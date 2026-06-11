@@ -75,17 +75,6 @@ def evaluate_xgboost(model_uri: str) -> tuple[float, float, float, float]:
     return mae, rmse, mape, bias
 
 
-def _latest_version(client: MlflowClient, model_name: str) -> int:
-    versions = client.search_model_versions(f"name='{model_name}'")
-    return max(int(v.version) for v in versions)
-
-
-def _production_version(client: MlflowClient, model_name: str) -> int | None:
-    versions = client.search_model_versions(f"name='{model_name}'")
-    prod = [v for v in versions if v.current_stage == "Production"]
-    return max(int(v.version) for v in prod) if prod else None
-
-
 def _promote(client: MlflowClient, model_name: str, version: int) -> None:
     client.transition_model_version_stage(
         name=model_name, version=version, stage="Production",
@@ -99,8 +88,14 @@ def _evaluate_and_gate(
     evaluate_fn,
 ) -> tuple[float, float, float, float]:
     """Gate Production promotion: promote only if new version MAE < current Production MAE."""
-    new_ver = _latest_version(client, model_name)
-    prod_ver = _production_version(client, model_name)
+    versions = client.search_model_versions(f"name='{model_name}'")
+    if not versions:
+        logger.info(f"{model_name} — no registered versions found, skipping")
+        return 0.0, 0.0, 0.0, 0.0
+
+    new_ver = max(int(v.version) for v in versions)
+    prod_versions = [v for v in versions if v.current_stage == "Production"]
+    prod_ver = max(int(v.version) for v in prod_versions) if prod_versions else None
 
     new_mae, new_rmse, new_mape, new_bias = evaluate_fn(f"models:/{model_name}/{new_ver}")
     logger.info(

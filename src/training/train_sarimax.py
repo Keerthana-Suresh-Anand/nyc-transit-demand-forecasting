@@ -6,7 +6,6 @@ import mlflow.statsmodels
 import numpy as np
 import pandas as pd
 import pmdarima as pm
-from mlflow import MlflowClient
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -125,15 +124,6 @@ def run() -> None:
             registered_model_name=SARIMAX_MODEL_NAME,
         )
         logger.info(f"Model registered: {SARIMAX_MODEL_NAME} (run_id={run.info.run_id})")
-
-    client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
-    versions = client.search_model_versions(f"name='{SARIMAX_MODEL_NAME}'")
-    latest_version = max(int(v.version) for v in versions)
-    client.transition_model_version_stage(
-        name=SARIMAX_MODEL_NAME, version=latest_version, stage="Production",
-        archive_existing_versions=True,
-    )
-    logger.info(f"SARIMAX v{latest_version} promoted to Production")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 from datetime import date
 
 import boto3
@@ -23,7 +24,10 @@ from src.utils.config import (
     S3_WEATHER_FORECAST_PREFIX,
 )
 
+logger = logging.getLogger(__name__)
 
+
+@st.cache_resource
 def _s3():
     return boto3.client(
         "s3",
@@ -37,7 +41,8 @@ def _get_json(s3, key: str) -> dict | list | None:
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         return json.loads(obj["Body"].read().decode("utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to load JSON %s: %s", key, e)
         return None
 
 
@@ -45,7 +50,8 @@ def _get_parquet(s3, key: str) -> pd.DataFrame | None:
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         return pd.read_parquet(io.BytesIO(obj["Body"].read()))
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to load parquet %s: %s", key, e)
         return None
 
 
@@ -58,7 +64,8 @@ def _list_keys(s3, prefix: str, suffix: str = "") -> list[str]:
                 if not suffix or obj["Key"].endswith(suffix):
                     keys.append(obj["Key"])
         return sorted(keys)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to list keys under %s: %s", prefix, e)
         return []
 
 
@@ -70,11 +77,7 @@ def load_forecast() -> dict | None:
 
 @st.cache_data(ttl=3600)
 def load_history(days: int = 120) -> pd.DataFrame | None:
-    """
-    Load the last `days` rows of the gold SARIMA parquet.
-    Columns: daily_ridership, temp, precip, snow, is_holiday, snow_lag1
-    Falls back to local file if S3 is unavailable.
-    """
+    """Load the last `days` rows of the gold SARIMA parquet, with local fallback."""
     s3 = _s3()
     df = _get_parquet(s3, S3_GOLD_SARIMA_KEY)
     if df is None and GOLD_SARIMA_LOCAL_PATH.exists():
@@ -98,7 +101,8 @@ def load_weather_forecast() -> pd.DataFrame | None:
         df = pd.read_csv(io.StringIO(obj["Body"].read().decode("utf-8")))
         df["datetime"] = pd.to_datetime(df["datetime"])
         return df.sort_values("datetime").reset_index(drop=True)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to load weather forecast %s: %s", keys[-1], e)
         return None
 
 
@@ -117,15 +121,15 @@ def load_shap_image() -> bytes | None:
         s3 = _s3()
         obj = s3.get_object(Bucket=BUCKET, Key=S3_SHAP_KEY)
         return obj["Body"].read()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to load SHAP image %s: %s", S3_SHAP_KEY, e)
         return None
 
 
 @st.cache_data(ttl=3600)
 def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
     """
-    Load the last 8 weekly forecast parquets from S3, cross-join predicted dates
-    that are now in the past with actuals from the gold parquet.
+    Cross-join the last 8 weekly forecast parquets with actuals from the gold parquet.
     Returns columns: forecast_run_date, date, ensemble_forecast_M,
                      sarimax_forecast_M, actual_M, error_M, abs_pct_error, week.
     """
@@ -138,32 +142,50 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
     if not parquet_keys:
         return None
 
+    hist_lookup = (history["daily_ridership"] / 1_000_000).rename("actual_M")
+    hist_lookup.index = hist_lookup.index.normalize()
+
     today = date.today()
-    rows = []
+    chunks = []
     for key in parquet_keys[-8:]:
-        run_date_str = key.split("forecast_")[-1].replace(".parquet", "")
+        parts = key.rsplit("forecast_", 1)
+        if len(parts) < 2:
+            logger.warning("Unexpected forecast key format: %s", key)
+            continue
+        run_date_str = parts[-1].replace(".parquet", "")
+
         df_fc = _get_parquet(s3, key)
         if df_fc is None:
             continue
-        df_fc["date"] = pd.to_datetime(df_fc["date"]).dt.date
-        for _, row in df_fc[df_fc["date"] < today].iterrows():
-            ts = pd.Timestamp(row["date"])
-            if ts in history.index:
-                actual_M = history.loc[ts, "daily_ridership"] / 1_000_000
-                err = row["ensemble_forecast_M"] - actual_M
-                rows.append({
-                    "forecast_run_date": run_date_str,
-                    "date": row["date"],
-                    "ensemble_forecast_M": row["ensemble_forecast_M"],
-                    "sarimax_forecast_M": row["sarimax_forecast_M"],
-                    "actual_M": actual_M,
-                    "error_M": err,
-                    "abs_pct_error": abs(err) / actual_M * 100,
-                })
 
-    if not rows:
+        df_fc["date"] = pd.to_datetime(df_fc["date"]).dt.normalize()
+        past = df_fc[df_fc["date"].dt.date < today].copy()
+        if past.empty:
+            continue
+
+        merged = past.set_index("date").join(hist_lookup, how="inner")
+        if merged.empty:
+            continue
+
+        merged["forecast_run_date"] = run_date_str
+        merged["error_M"] = merged["ensemble_forecast_M"] - merged["actual_M"]
+        merged["abs_pct_error"] = merged["error_M"].abs() / merged["actual_M"] * 100
+        chunks.append(
+            merged.reset_index()[
+                [
+                    "forecast_run_date", "date", "ensemble_forecast_M",
+                    "sarimax_forecast_M", "actual_M", "error_M", "abs_pct_error",
+                ]
+            ]
+        )
+
+    if not chunks:
         return None
-    df = pd.DataFrame(rows).sort_values("date", ascending=False).reset_index(drop=True)
+    df = (
+        pd.concat(chunks, ignore_index=True)
+        .sort_values("date", ascending=False)
+        .reset_index(drop=True)
+    )
     df["week"] = pd.to_datetime(df["date"]).dt.to_period("W")
     return df
 
@@ -179,14 +201,13 @@ def load_pipeline_status() -> dict:
         "ingestion_status": None,
         "training_status": None,
         "prediction_status": None,
-        "training_row_count": None,
     }
 
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK)
         status["last_ingestion_date"] = obj["Body"].read().decode().strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to read MTA watermark: %s", e)
 
     all_run_keys = _list_keys(s3, S3_PIPELINE_RUNS_PREFIX, ".json")
     for pipeline_type in ("training", "ingestion", "prediction"):
@@ -209,10 +230,6 @@ def load_pipeline_status() -> dict:
         fc = load_forecast()
         if fc:
             status["last_forecast_date"] = fc.get("run_date")
-
-    history = load_history(days=5)
-    if history is not None:
-        status["training_row_count"] = len(history)
 
     return status
 

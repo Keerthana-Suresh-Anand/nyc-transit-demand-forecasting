@@ -22,12 +22,23 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+_C = {
+    "blue":   "#4c9be8",
+    "orange": "#f4a261",
+    "teal":   "#2a9d8f",
+    "red":    "#e63946",
+    "event":  "rgba(255,210,60,0.45)",
+    "today":  "rgba(255,255,255,0.6)",
+}
+_MAX_EVENT_LABEL_LEN = 18
+
 # ─── Data loading ─────────────────────────────────────────────────────────────
-forecast_data = load_forecast()
-history = load_history(days=120)
-drift = load_drift_report()
-pipeline_status = load_pipeline_status()
-events = load_events()
+with st.spinner("Loading dashboard data..."):
+    forecast_data = load_forecast()
+    history = load_history(days=120)
+    drift = load_drift_report()
+    pipeline_status = load_pipeline_status()
+    events = load_events()
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -71,180 +82,198 @@ with tab1:
             "Could not load forecast or historical data from S3. "
             "Verify AWS credentials and run the prediction pipeline."
         )
-        st.stop()
-
-    fc_rows = pd.DataFrame(forecast_data["forecasts"])
-    fc_rows["date"] = pd.to_datetime(fc_rows["date"])
-
-    # KPI row — future_fc filters to rows that haven't passed yet
-    tomorrow = pd.Timestamp(date.today()) + pd.Timedelta(days=1)
-    future_fc = fc_rows[fc_rows["date"] >= tomorrow]
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Latest Actual (M)", f"{history['daily_ridership'].iloc[-1] / 1_000_000:.2f}")
-    if not future_fc.empty:
-        k2.metric("Tomorrow Forecast (M)", f"{future_fc['ensemble_forecast_M'].iloc[0]:.2f}")
-        k3.metric("7-Day Avg Forecast (M)", f"{future_fc['ensemble_forecast_M'].iloc[:7].mean():.2f}")
     else:
-        k2.metric("Tomorrow Forecast (M)", "—")
-        k3.metric("7-Day Avg Forecast (M)", "—")
-    k4.metric("Data Through", str(history.index.max().date()))
+        fc_rows = pd.DataFrame(forecast_data["forecasts"])
+        fc_rows["date"] = pd.to_datetime(fc_rows["date"])
 
-    st.markdown("---")
+        # KPI row
+        tomorrow = pd.Timestamp(date.today()) + pd.Timedelta(days=1)
+        future_fc = fc_rows[fc_rows["date"] >= tomorrow]
 
-    # Main ridership chart
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=history.index,
-        y=history["daily_ridership"] / 1_000_000,
-        mode="lines",
-        name="Actuals",
-        line=dict(color="#4c9be8", width=2),
-    ))
-
-    # CI band (from SARIMAX confidence interval)
-    fig.add_trace(go.Scatter(
-        x=pd.concat([fc_rows["date"], fc_rows["date"].iloc[::-1]]),
-        y=pd.concat([fc_rows["ci_upper"], fc_rows["ci_lower"].iloc[::-1]]),
-        fill="toself",
-        fillcolor="rgba(180,180,180,0.15)",
-        line=dict(color="rgba(0,0,0,0)"),
-        hoverinfo="skip",
-        name="95% CI",
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=fc_rows["date"],
-        y=fc_rows["sarimax_forecast_M"],
-        mode="lines",
-        name="SARIMAX",
-        line=dict(color="#f4a261", width=1.5, dash="dot"),
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=fc_rows["date"],
-        y=fc_rows["xgboost_forecast_M"],
-        mode="lines",
-        name="XGBoost",
-        line=dict(color="#2a9d8f", width=1.5, dash="dot"),
-    ))
-
-    fig.add_trace(go.Scatter(
-        x=fc_rows["date"],
-        y=fc_rows["ensemble_forecast_M"],
-        mode="lines+markers",
-        name="Ensemble",
-        line=dict(color="#e63946", width=2.5),
-        marker=dict(size=5),
-    ))
-
-    # Event annotations — only within the visible chart window
-    chart_start = history.index.min()
-    chart_end = fc_rows["date"].max()
-    for ev in events:
-        ev_date = ev.get("date") or ev.get("datetime")
-        ev_name = ev.get("name", "Event")
-        if ev_date:
-            x_val = str(ev_date)[:10]
-            ev_ts = pd.Timestamp(x_val)
-            if not (chart_start <= ev_ts <= chart_end):
-                continue
-            fig.add_shape(
-                type="line", x0=x_val, x1=x_val, y0=0, y1=1,
-                xref="x", yref="paper",
-                line=dict(dash="dash", color="rgba(255,210,60,0.45)"),
+        latest_ridership = history["daily_ridership"].iloc[-1]
+        latest_date = history.index[-1]
+        wow_iloc = history.index.get_indexer(
+            [latest_date - pd.Timedelta(weeks=1)], method="nearest"
+        )[0]
+        wow_delta_str = None
+        if wow_iloc >= 0:
+            wow_pct = (
+                (latest_ridership - history["daily_ridership"].iloc[wow_iloc])
+                / history["daily_ridership"].iloc[wow_iloc]
+                * 100
             )
-            fig.add_annotation(
-                x=x_val, y=1, xref="x", yref="paper",
-                text=ev_name[:18], showarrow=False,
-                font=dict(size=9), yanchor="bottom",
+            wow_delta_str = f"{wow_pct:+.1f}% vs last week"
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric(
+            "Latest Ridership (M)",
+            f"{latest_ridership / 1_000_000:.2f}",
+            delta=wow_delta_str,
+        )
+        k1.caption(f"As of {latest_date.strftime('%Y-%m-%d')} · {latest_date.strftime('%a')}")
+
+        if not future_fc.empty:
+            k2.metric("Tomorrow Forecast (M)", f"{future_fc['ensemble_forecast_M'].iloc[0]:.2f}")
+            k3.metric("7-Day Avg Forecast (M)", f"{future_fc['ensemble_forecast_M'].iloc[:7].mean():.2f}")
+        else:
+            k2.metric("Tomorrow Forecast (M)", "—")
+            k3.metric("7-Day Avg Forecast (M)", "—")
+        k4.metric("Forecast Through", str(fc_rows["date"].max().date()))
+
+        st.markdown("---")
+
+        # Main ridership chart
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=history.index,
+            y=history["daily_ridership"] / 1_000_000,
+            mode="lines",
+            name="Actuals",
+            line=dict(color=_C["blue"], width=2),
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=pd.concat([fc_rows["date"], fc_rows["date"].iloc[::-1]]),
+            y=pd.concat([fc_rows["ci_upper"], fc_rows["ci_lower"].iloc[::-1]]),
+            fill="toself",
+            fillcolor="rgba(180,180,180,0.15)",
+            line=dict(color="rgba(0,0,0,0)"),
+            hoverinfo="skip",
+            name="95% CI",
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=fc_rows["date"],
+            y=fc_rows["sarimax_forecast_M"],
+            mode="lines",
+            name="SARIMAX",
+            line=dict(color=_C["orange"], width=1.5, dash="dot"),
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=fc_rows["date"],
+            y=fc_rows["xgboost_forecast_M"],
+            mode="lines",
+            name="XGBoost",
+            line=dict(color=_C["teal"], width=1.5, dash="dot"),
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=fc_rows["date"],
+            y=fc_rows["ensemble_forecast_M"],
+            mode="lines+markers",
+            name="Ensemble",
+            line=dict(color=_C["red"], width=2.5),
+            marker=dict(size=5),
+        ))
+
+        # Event annotations — only within the visible chart window
+        chart_start = history.index.min()
+        chart_end = fc_rows["date"].max()
+        for ev in events:
+            ev_date = ev.get("date") or ev.get("datetime")
+            ev_name = ev.get("name", "Event")
+            if ev_date:
+                x_val = str(ev_date)[:10]
+                ev_ts = pd.Timestamp(x_val)
+                if not (chart_start <= ev_ts <= chart_end):
+                    continue
+                fig.add_shape(
+                    type="line", x0=x_val, x1=x_val, y0=0, y1=1,
+                    xref="x", yref="paper",
+                    line=dict(dash="dash", color=_C["event"]),
+                )
+                fig.add_annotation(
+                    x=x_val, y=1, xref="x", yref="paper",
+                    text=ev_name[:_MAX_EVENT_LABEL_LEN], showarrow=False,
+                    font=dict(size=9), yanchor="bottom",
+                )
+
+        fig.add_shape(
+            type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
+            xref="x", yref="paper",
+            line=dict(color=_C["today"]),
+        )
+        fig.add_annotation(
+            x=str(date.today()), y=1, xref="x", yref="paper",
+            text="Today", showarrow=False, yanchor="bottom", xanchor="right",
+        )
+
+        fig.update_layout(
+            title="NYC Subway Daily Ridership — Historical & 14-Day Forecast",
+            xaxis_title="Date",
+            yaxis_title="Ridership (Millions)",
+            hovermode="x unified",
+            height=460,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=50, r=30, t=60, b=50),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Weather context
+        st.subheader("Weather Context")
+        weather_fc = load_weather_forecast()
+        hist_30 = history.iloc[-30:]
+
+        wc1, wc2 = st.columns(2)
+        with wc1:
+            fig_temp = go.Figure()
+            if "temp" in hist_30.columns:
+                fig_temp.add_trace(go.Scatter(
+                    x=hist_30.index, y=hist_30["temp"],
+                    mode="lines", name="Historical Temp",
+                    line=dict(color=_C["blue"], dash="dot"),
+                ))
+            if weather_fc is not None and "temp" in weather_fc.columns:
+                fig_temp.add_trace(go.Scatter(
+                    x=weather_fc["datetime"], y=weather_fc["temp"],
+                    mode="lines+markers", name="Forecast Temp",
+                    line=dict(color=_C["orange"]),
+                ))
+            fig_temp.add_shape(
+                type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
+                xref="x", yref="paper", line=dict(color=_C["today"]),
             )
+            fig_temp.update_layout(
+                title="Temperature (°F)", height=240,
+                margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
+            )
+            st.plotly_chart(fig_temp, use_container_width=True)
 
-    fig.add_shape(
-        type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
-        xref="x", yref="paper",
-        line=dict(color="rgba(255,255,255,0.6)"),
-    )
-    fig.add_annotation(
-        x=str(date.today()), y=1, xref="x", yref="paper",
-        text="Today", showarrow=False, yanchor="bottom", xanchor="right",
-    )
-
-    fig.update_layout(
-        title="NYC Subway Daily Ridership — Historical & 14-Day Forecast",
-        xaxis_title="Date",
-        yaxis_title="Ridership (Millions)",
-        hovermode="x unified",
-        height=460,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=50, r=30, t=60, b=50),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Weather context
-    st.subheader("Weather Context")
-    weather_fc = load_weather_forecast()
-    hist_30 = history.iloc[-30:]
-
-    wc1, wc2 = st.columns(2)
-    with wc1:
-        fig_temp = go.Figure()
-        if "temp" in hist_30.columns:
-            fig_temp.add_trace(go.Scatter(
-                x=hist_30.index, y=hist_30["temp"],
-                mode="lines", name="Historical Temp",
-                line=dict(color="#4c9be8", dash="dot"),
-            ))
-        if weather_fc is not None and "temp" in weather_fc.columns:
-            fig_temp.add_trace(go.Scatter(
-                x=weather_fc["datetime"], y=weather_fc["temp"],
-                mode="lines+markers", name="Forecast Temp",
-                line=dict(color="#f4a261"),
-            ))
-        fig_temp.add_shape(
-            type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
-            xref="x", yref="paper", line=dict(color="rgba(255,255,255,0.2)"),
-        )
-        fig_temp.update_layout(
-            title="Temperature (°F)", height=240,
-            margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
-        )
-        st.plotly_chart(fig_temp, use_container_width=True)
-
-    with wc2:
-        fig_precip = go.Figure()
-        if "precip" in hist_30.columns:
-            fig_precip.add_trace(go.Bar(
-                x=hist_30.index, y=hist_30["precip"],
-                name="Historical Precip", marker_color="#4c9be8",
-            ))
-        if weather_fc is not None and "precip" in weather_fc.columns:
-            fig_precip.add_trace(go.Bar(
-                x=weather_fc["datetime"], y=weather_fc["precip"],
-                name="Forecast Precip", marker_color="#f4a261",
-            ))
-        fig_precip.add_shape(
-            type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
-            xref="x", yref="paper", line=dict(color="rgba(255,255,255,0.2)"),
-        )
-        fig_precip.update_layout(
-            title="Precipitation (in)", height=240,
-            barmode="overlay",
-            margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
-        )
-        st.plotly_chart(fig_precip, use_container_width=True)
+        with wc2:
+            fig_precip = go.Figure()
+            if "precip" in hist_30.columns:
+                fig_precip.add_trace(go.Bar(
+                    x=hist_30.index, y=hist_30["precip"],
+                    name="Historical Precip", marker_color=_C["blue"],
+                ))
+            if weather_fc is not None and "precip" in weather_fc.columns:
+                fig_precip.add_trace(go.Bar(
+                    x=weather_fc["datetime"], y=weather_fc["precip"],
+                    name="Forecast Precip", marker_color=_C["orange"],
+                ))
+            fig_precip.add_shape(
+                type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
+                xref="x", yref="paper", line=dict(color=_C["today"]),
+            )
+            fig_precip.update_layout(
+                title="Precipitation (in)", height=240,
+                barmode="overlay",
+                margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
+            )
+            st.plotly_chart(fig_precip, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — MODEL PERFORMANCE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
+    perf_df = load_past_forecasts_vs_actuals()
     pc1, pc2 = st.columns([1, 1])
 
     with pc1:
         st.subheader("Past Forecasts vs Actuals")
-        perf_df = load_past_forecasts_vs_actuals()
         if perf_df is not None and len(perf_df) > 0:
             display = (
                 perf_df[["date", "actual_M", "ensemble_forecast_M", "error_M", "abs_pct_error"]]
@@ -263,7 +292,7 @@ with tab2:
             st.dataframe(display, use_container_width=True, hide_index=True)
 
             m1, m2 = st.columns(2)
-            m1.metric("Mean MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
+            m1.metric("MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
             m2.metric("Mean |Error|", f"{perf_df['error_M'].abs().mean():.3f} M")
         else:
             st.info("No past forecast comparisons available yet. These accumulate weekly as forecasts age into the past.")
@@ -279,7 +308,7 @@ with tab2:
             )
             weekly["week"] = weekly["week"].astype(str)
             fig_mae = go.Figure(go.Bar(
-                x=weekly["week"], y=weekly["error_M"], marker_color="#4c9be8",
+                x=weekly["week"], y=weekly["error_M"], marker_color=_C["blue"],
             ))
             fig_mae.update_layout(
                 yaxis_title="MAE (M)", xaxis_title="Week",
@@ -306,15 +335,15 @@ with tab2:
         if psi_scores:
             psi_vals = list(psi_scores.values())
             colors = [
-                "#e63946" if v > 0.25 else "#f4a261" if v > 0.1 else "#2a9d8f"
+                _C["red"] if v > 0.25 else _C["orange"] if v > 0.1 else _C["teal"]
                 for v in psi_vals
             ]
             fig_psi = go.Figure(go.Bar(
                 x=list(psi_scores.keys()), y=psi_vals, marker_color=colors,
             ))
-            fig_psi.add_hline(y=0.1, line_dash="dot", line_color="#f4a261",
+            fig_psi.add_hline(y=0.1, line_dash="dot", line_color=_C["orange"],
                                annotation_text="Moderate (0.10)")
-            fig_psi.add_hline(y=0.25, line_dash="dot", line_color="#e63946",
+            fig_psi.add_hline(y=0.25, line_dash="dot", line_color=_C["red"],
                                annotation_text="Critical (0.25)")
             fig_psi.update_layout(
                 yaxis_title="PSI", height=260,
@@ -330,7 +359,7 @@ with tab2:
     st.subheader("XGBoost Feature Importance (SHAP)")
     shap_img = load_shap_image()
     if shap_img:
-        st.image(shap_img, caption="SHAP Summary Plot — XGBoost Champion", use_container_width=True)
+        st.image(shap_img, caption="SHAP Summary Plot — XGBoost Production Model", use_container_width=True)
     else:
         st.info("SHAP image not available. Run the training pipeline to generate and upload it.")
 

@@ -63,8 +63,8 @@ REPORTS_DIR = BASE_DIR / "reports" / "plots"
 # MLflow
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{BASE_DIR}/mlflow.db")
 MLFLOW_EXPERIMENT_NAME = "nyc_transit_forecasting"
-SARIMAX_MODEL_NAME = "sarimax_champion"
-XGBOOST_MODEL_NAME = "xgboost_champion"
+SARIMAX_MODEL_NAME = "sarimax_production"
+XGBOOST_MODEL_NAME = "xgboost_production"
 
 # S3 keys — reports
 S3_REPORTS_PREFIX = "reports/"

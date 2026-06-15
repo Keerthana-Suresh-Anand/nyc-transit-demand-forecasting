@@ -77,7 +77,7 @@ def run() -> None:
 
     best_order, best_seasonal = find_best_params(train_y, train_exog)
 
-    with mlflow.start_run(run_name="sarimax_champion") as run:
+    with mlflow.start_run(run_name="sarimax_training") as run:
         mlflow.set_tag("data_version_date", y.index.max().strftime("%Y-%m-%d"))
         mlflow.set_tag("dataset_row_count", len(y))
         mlflow.set_tag("project_phase", "champion_selection")
@@ -115,7 +115,7 @@ def run() -> None:
                         color="gray", alpha=0.25, label="95% CI")
         ax.set_title(f"SARIMAX Champion | MAE: {mae:.3f}M | MAPE: {mape:.2%}")
         ax.legend()
-        plot_path = REPORTS_DIR / "sarimax_champion_forecast.png"
+        plot_path = REPORTS_DIR / "sarimax_training_forecast.png"
         fig.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))

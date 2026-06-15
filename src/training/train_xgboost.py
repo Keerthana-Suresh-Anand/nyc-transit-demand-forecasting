@@ -72,7 +72,7 @@ def run() -> None:
 
     logger.info(f"CV mean MAE: {np.mean(cv_maes):.4f}M (±{np.std(cv_maes):.4f})")
 
-    with mlflow.start_run(run_name="xgboost_champion") as run:
+    with mlflow.start_run(run_name="xgboost_training") as run:
         mlflow.set_tag("data_version_date", df.index.max().strftime("%Y-%m-%d"))
         mlflow.set_tag("dataset_row_count", len(df))
         mlflow.set_tag("project_phase", "champion_selection")
@@ -103,7 +103,7 @@ def run() -> None:
         ax.plot(y_test.index, y_pred, label="XGBoost forecast", linestyle="--", color="darkorange")
         ax.set_title(f"XGBoost Champion | MAE: {mae:.3f}M | MAPE: {mape:.2%}")
         ax.legend()
-        plot_path = REPORTS_DIR / "xgboost_champion_forecast.png"
+        plot_path = REPORTS_DIR / "xgboost_training_forecast.png"
         fig.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))

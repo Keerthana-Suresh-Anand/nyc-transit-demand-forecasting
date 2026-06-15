@@ -138,11 +138,10 @@ def run(training_mae: float | None = None) -> dict:
     for col, psi in psi_scores.items():
         logger.info(f"PSI [{col}]: {psi:.4f}")
 
-    # ── Retrain decision ──────────────────────────────────────────────────
+    # ── Retrain decision (MAE only — PSI is informational) ───────────────
+    # PSI on weather features fires seasonal false alarms every spring/fall.
+    # Retraining is triggered only by MAE degradation, never by PSI alone.
     retrain_reasons: list[str] = []
-    if psi_status == "critical":
-        retrain_reasons.append(f"PSI={max_psi:.3f} exceeds critical threshold {PSI_CRITICAL_THRESHOLD}")
-
     rolling_mae = fc_metrics.get("rolling_mae_M")
     if training_mae is not None and rolling_mae is not None:
         threshold = training_mae * MAE_RETRAIN_MULTIPLIER

@@ -2,9 +2,10 @@
 Compares each newly trained model version against the current Production version.
 Promotes to Production only if the new version has lower MAE on the holdout set.
 Both models go to Production (ensemble uses both); winner between families is metadata only.
+After evaluation, writes a training baseline JSON to S3 containing the ensemble MAE
+so the monitoring pipeline has a meaningful threshold for triggering retrains.
 """
 import warnings
-from datetime import date
 
 import mlflow
 import numpy as np
@@ -14,14 +15,18 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error,
 from sklearn.preprocessing import MinMaxScaler
 
 from src.utils.config import (
+    ENSEMBLE_SARIMAX_WEIGHT,
+    ENSEMBLE_XGB_WEIGHT,
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
+    S3_TRAINING_BASELINE_KEY,
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
 from src.utils.logger import get_logger
+from src.utils.s3_helpers import get_s3_client, write_s3_json
 
 warnings.filterwarnings("ignore")
 logger = get_logger(__name__)
@@ -30,7 +35,7 @@ TEST_DAYS = 30
 SARIMAX_EXOG_COLS = ["temp", "precip", "snow_lag1", "is_holiday"]
 
 
-def evaluate_sarimax(model_uri: str) -> tuple[float, float, float, float]:
+def evaluate_sarimax(model_uri: str) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
     df = pd.read_parquet(GOLD_SARIMA_LOCAL_PATH)
     df.index = pd.to_datetime(df.index)
     df = df.asfreq("D")
@@ -54,10 +59,10 @@ def evaluate_sarimax(model_uri: str) -> tuple[float, float, float, float]:
     rmse = np.sqrt(mean_squared_error(test_y, y_pred))
     mape = mean_absolute_percentage_error(test_y, y_pred)
     bias = float(np.mean(np.array(y_pred) - np.array(test_y)))
-    return mae, rmse, mape, bias
+    return mae, rmse, mape, bias, np.array(y_pred), np.array(test_y)
 
 
-def evaluate_xgboost(model_uri: str) -> tuple[float, float, float, float]:
+def evaluate_xgboost(model_uri: str) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
     df = pd.read_parquet(GOLD_ML_LOCAL_PATH)
     df.index = pd.to_datetime(df.index)
     feature_cols = [c for c in df.columns if c != "daily_ridership"]
@@ -72,7 +77,7 @@ def evaluate_xgboost(model_uri: str) -> tuple[float, float, float, float]:
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mape = mean_absolute_percentage_error(y_test, y_pred)
     bias = float(np.mean(np.array(y_pred) - np.array(y_test)))
-    return mae, rmse, mape, bias
+    return mae, rmse, mape, bias, np.array(y_pred), np.array(y_test)
 
 
 def _promote(client: MlflowClient, model_name: str, version: int) -> None:
@@ -86,18 +91,20 @@ def _evaluate_and_gate(
     client: MlflowClient,
     model_name: str,
     evaluate_fn,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
     """Gate Production promotion: promote only if new version MAE < current Production MAE."""
     versions = client.search_model_versions(f"name='{model_name}'")
     if not versions:
         logger.info(f"{model_name} — no registered versions found, skipping")
-        return 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, np.array([]), np.array([])
 
     new_ver = max(int(v.version) for v in versions)
     prod_versions = [v for v in versions if v.current_stage == "Production"]
     prod_ver = max(int(v.version) for v in prod_versions) if prod_versions else None
 
-    new_mae, new_rmse, new_mape, new_bias = evaluate_fn(f"models:/{model_name}/{new_ver}")
+    new_mae, new_rmse, new_mape, new_bias, new_pred, new_actual = evaluate_fn(
+        f"models:/{model_name}/{new_ver}"
+    )
     logger.info(
         f"{model_name} v{new_ver} (candidate) — "
         f"MAE: {new_mae:.4f}M  RMSE: {new_rmse:.4f}M  MAPE: {new_mape:.2%}  bias: {new_bias:+.4f}M"
@@ -109,7 +116,7 @@ def _evaluate_and_gate(
     elif prod_ver == new_ver:
         logger.info(f"{model_name} v{new_ver} already in Production — skipping gate")
     else:
-        old_mae, _, _, _ = evaluate_fn(f"models:/{model_name}/{prod_ver}")
+        old_mae, _, _, _, _, _ = evaluate_fn(f"models:/{model_name}/{prod_ver}")
         logger.info(f"{model_name} v{prod_ver} (Production) — MAE: {old_mae:.4f}M")
         if new_mae < old_mae:
             _promote(client, model_name, new_ver)
@@ -123,7 +130,7 @@ def _evaluate_and_gate(
                 f"(MAE {new_mae:.4f}M >= {old_mae:.4f}M) — keeping v{prod_ver} in Production"
             )
 
-    return new_mae, new_rmse, new_mape, new_bias
+    return new_mae, new_rmse, new_mape, new_bias, new_pred, new_actual
 
 
 def run() -> str:
@@ -132,27 +139,30 @@ def run() -> str:
     client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
 
     logger.info("Evaluating SARIMAX")
-    sarimax_mae, sarimax_rmse, sarimax_mape, sarimax_bias = _evaluate_and_gate(
-        client, SARIMAX_MODEL_NAME, evaluate_sarimax,
+    sarimax_mae, sarimax_rmse, sarimax_mape, sarimax_bias, sarimax_pred, y_actual = (
+        _evaluate_and_gate(client, SARIMAX_MODEL_NAME, evaluate_sarimax)
     )
 
     logger.info("Evaluating XGBoost")
-    xgb_mae, xgb_rmse, xgb_mape, xgb_bias = _evaluate_and_gate(
-        client, XGBOOST_MODEL_NAME, evaluate_xgboost,
+    xgb_mae, xgb_rmse, xgb_mape, xgb_bias, xgb_pred, _ = (
+        _evaluate_and_gate(client, XGBOOST_MODEL_NAME, evaluate_xgboost)
     )
 
     winner = SARIMAX_MODEL_NAME if sarimax_mae <= xgb_mae else XGBOOST_MODEL_NAME
     logger.info(f"Champion model family: {winner} (MAE {min(sarimax_mae, xgb_mae):.4f}M)")
 
-    with mlflow.start_run(run_name="model_comparison"):
-        mlflow.log_metrics({
-            "sarimax_mae": sarimax_mae, "sarimax_rmse": sarimax_rmse,
-            "sarimax_mape": sarimax_mape, "sarimax_bias": sarimax_bias,
-            "xgboost_mae": xgb_mae, "xgboost_rmse": xgb_rmse,
-            "xgboost_mape": xgb_mape, "xgboost_bias": xgb_bias,
-        })
-        mlflow.log_param("champion_model", winner)
-        mlflow.log_param("evaluation_date", str(date.today()))
+    if sarimax_pred.size > 0 and xgb_pred.size > 0:
+        ensemble_pred = ENSEMBLE_SARIMAX_WEIGHT * sarimax_pred + ENSEMBLE_XGB_WEIGHT * xgb_pred
+        ensemble_mae = float(np.mean(np.abs(ensemble_pred - y_actual)))
+        logger.info(f"Ensemble holdout MAE: {ensemble_mae:.4f}M")
+        s3 = get_s3_client()
+        write_s3_json(s3, {
+            "ensemble_mae": ensemble_mae,
+            "sarimax_mae": sarimax_mae,
+            "xgboost_mae": xgb_mae,
+            "champion_model": winner,
+        }, S3_TRAINING_BASELINE_KEY)
+        logger.info("Training baseline written to S3")
 
     return winner
 

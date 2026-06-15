@@ -3,9 +3,9 @@ import sys
 from datetime import date, datetime
 
 from src.monitoring import monitor_performance
-from src.utils.config import S3_PIPELINE_RUNS_PREFIX
+from src.utils.config import S3_PIPELINE_RUNS_PREFIX, S3_TRAINING_BASELINE_KEY
 from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, write_s3_json
+from src.utils.s3_helpers import get_s3_client, read_s3_json, write_s3_json
 
 logger = get_logger(__name__)
 
@@ -18,7 +18,17 @@ def run() -> None:
 
     try:
         logger.info("=== Monitoring Pipeline START ===")
-        report = monitor_performance.run()
+
+        s3 = get_s3_client()
+        training_mae = None
+        try:
+            baseline = read_s3_json(s3, S3_TRAINING_BASELINE_KEY)
+            training_mae = baseline.get("ensemble_mae")
+            logger.info(f"Training baseline loaded — ensemble MAE: {training_mae:.4f}M")
+        except Exception:
+            logger.warning("No training baseline found — MAE threshold check disabled")
+
+        report = monitor_performance.run(training_mae=training_mae)
         logger.info("=== Monitoring Pipeline COMPLETE ===")
     except Exception as e:
         status = "failure"

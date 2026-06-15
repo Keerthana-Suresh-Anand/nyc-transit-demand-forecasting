@@ -1,3 +1,4 @@
+import pickle
 import warnings
 from datetime import date
 
@@ -118,6 +119,12 @@ def run() -> None:
         fig.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))
+
+        scaler_path = REPORTS_DIR / "sarimax_scaler.pkl"
+        with open(scaler_path, "wb") as f:
+            pickle.dump(scaler, f)
+        mlflow.log_artifact(str(scaler_path))
+        logger.info("Scaler logged as MLflow artifact")
 
         mlflow.statsmodels.log_model(
             final_model, "sarimax_model",

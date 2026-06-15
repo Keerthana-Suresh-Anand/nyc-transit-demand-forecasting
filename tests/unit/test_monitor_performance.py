@@ -124,7 +124,8 @@ class TestMonitorRun:
             result = run()
         assert result["status"] == "error"
 
-    def test_retrain_recommended_on_critical_psi(self, monkeypatch):
+    def test_no_retrain_on_critical_psi_alone(self, monkeypatch):
+        """Critical PSI is informational only — must not trigger retraining."""
         gold = _make_gold(120)
         monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
 
@@ -135,8 +136,8 @@ class TestMonitorRun:
              patch("src.monitoring.monitor_performance.write_s3_json"):
             result = run()
 
-        assert result["retrain_recommended"] is True
-        assert len(result["retrain_reasons"]) >= 1
+        assert result["retrain_recommended"] is False
+        assert result["psi_status"] == "critical"
 
     def test_no_retrain_when_stable(self, monkeypatch):
         gold = _make_gold(120)

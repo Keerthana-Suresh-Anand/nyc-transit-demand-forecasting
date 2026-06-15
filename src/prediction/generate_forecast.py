@@ -2,6 +2,7 @@
 Generates a 14-day ensemble forecast using the Production SARIMAX and XGBoost models.
 Writes forecast to S3 as both a timestamped parquet and latest_forecast.json.
 """
+import pickle
 import warnings
 from datetime import date, timedelta
 
@@ -10,9 +11,12 @@ import mlflow.statsmodels
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
+from mlflow import MlflowClient
 from sklearn.preprocessing import MinMaxScaler
 
 from src.utils.config import (
+    ENSEMBLE_SARIMAX_WEIGHT,
+    ENSEMBLE_XGB_WEIGHT,
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_TRACKING_URI,
@@ -36,9 +40,29 @@ logger = get_logger(__name__)
 
 SARIMAX_EXOG_COLS = ["temp", "precip", "snow_lag1", "is_holiday"]
 ML_FEATURE_COLS = None  # resolved at runtime from training data
-ENSEMBLE_SARIMAX_WEIGHT = 0.6
-ENSEMBLE_XGB_WEIGHT = 0.4
 FORECAST_DAYS = 14
+
+
+def _load_production_scaler() -> MinMaxScaler | None:
+    """Load the scaler persisted during the Production SARIMAX training run.
+    Returns None if not found (e.g. model trained before scaler persistence was added).
+    """
+    try:
+        client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
+        versions = client.search_model_versions(f"name='{SARIMAX_MODEL_NAME}'")
+        prod = next((v for v in versions if v.current_stage == "Production"), None)
+        if prod is None:
+            return None
+        local_path = mlflow.artifacts.download_artifacts(
+            run_id=prod.run_id,
+            artifact_path="sarimax_scaler.pkl",
+            tracking_uri=MLFLOW_TRACKING_URI,
+        )
+        with open(local_path, "rb") as f:
+            return pickle.load(f)
+    except Exception as e:
+        logger.warning(f"Could not load Production scaler from MLflow: {e}")
+        return None
 
 
 def load_latest_weather_forecast(s3) -> pd.DataFrame:
@@ -54,8 +78,11 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/Production")
 
-    scaler = MinMaxScaler()
-    scaler.fit(df_sarima[SARIMAX_EXOG_COLS])
+    scaler = _load_production_scaler()
+    if scaler is None:
+        logger.warning("Scaler not in MLflow — re-fitting on all available data (next training run will fix this)")
+        scaler = MinMaxScaler()
+        scaler.fit(df_sarima[SARIMAX_EXOG_COLS])
 
     import holidays as hol
     us_holidays = hol.US(years=[start_date.year, start_date.year + 1])

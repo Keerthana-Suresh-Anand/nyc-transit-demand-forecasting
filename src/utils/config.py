@@ -70,6 +70,13 @@ XGBOOST_MODEL_NAME = "xgboost_champion"
 S3_REPORTS_PREFIX = "reports/"
 S3_SHAP_KEY = "reports/xgboost_shap_summary.png"
 
+# Ensemble weights
+ENSEMBLE_SARIMAX_WEIGHT = 0.6
+ENSEMBLE_XGB_WEIGHT = 0.4
+
+# Training baseline written by evaluate_models, read by monitoring
+S3_TRAINING_BASELINE_KEY = "monitoring/training_baseline.json"
+
 # MLflow S3 persistence (used by GitHub Actions to sync tracking db and artifacts)
 S3_MLFLOW_DB_KEY = "mlflow/mlflow.db"
 

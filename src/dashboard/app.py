@@ -106,7 +106,7 @@ with tab1:
 
         k1, k2, k3, k4 = st.columns(4)
         k1.metric(
-            "Latest Ridership (M)",
+            "Latest Daily Ridership (M)",
             f"{latest_ridership / 1_000_000:.2f}",
             delta=wow_delta_str,
         )

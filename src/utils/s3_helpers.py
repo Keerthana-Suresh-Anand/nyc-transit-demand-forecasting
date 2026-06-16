@@ -108,6 +108,15 @@ def s3_key_exists(s3_client, key: str) -> bool:
         return False
 
 
+def delete_s3_key(s3_client, key: str) -> None:
+    """Delete an S3 object; silently succeeds if the key does not exist."""
+    try:
+        s3_client.delete_object(Bucket=BUCKET, Key=key)
+        logger.debug(f"Deleted: s3://{BUCKET}/{key}")
+    except Exception as e:
+        logger.warning(f"Could not delete {key}: {e}")
+
+
 def upload_s3_file(s3_client, local_path: Path, key: str) -> None:
     """Upload a local file to S3 by path (streams without loading into memory)."""
     s3_client.upload_file(str(local_path), BUCKET, key)

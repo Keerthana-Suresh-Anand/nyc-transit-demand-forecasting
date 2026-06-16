@@ -114,7 +114,7 @@ def run() -> None:
         shap_values = explainer.shap_values(X_test)
 
         _FEATURE_LABELS = {
-            "temp":            "Temperature (°F)",
+            "temp":            "Temperature (°C)",
             "precip":          "Precipitation (in)",
             "snow":            "Snow (in)",
             "is_holiday":      "Holiday",
@@ -130,7 +130,7 @@ def run() -> None:
             "ridership_14d_avg": "14-Day Avg Ridership (M)",
             "ridership_7d_std":  "7-Day Std Ridership (M)",
             "precip_lag1":     "Precipitation Lag 1 (in)",
-            "temp_lag1":       "Temperature Lag 1 (°F)",
+            "temp_lag1":       "Temperature Lag 1 (°C)",
         }
         X_test_labeled = X_test.rename(columns=_FEATURE_LABELS)
 

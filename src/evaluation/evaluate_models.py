@@ -31,7 +31,7 @@ from src.utils.s3_helpers import get_s3_client, write_s3_json
 warnings.filterwarnings("ignore")
 logger = get_logger(__name__)
 
-TEST_DAYS = 30
+TEST_DAYS = 60
 SARIMAX_EXOG_COLS = ["temp", "precip", "snow_lag1", "is_holiday"]
 
 
@@ -62,22 +62,65 @@ def evaluate_sarimax(model_uri: str) -> tuple[float, float, float, float, np.nda
     return mae, rmse, mape, bias, np.array(y_pred), np.array(test_y)
 
 
+def _xgboost_iterative_predict(model, df: pd.DataFrame, test_start_idx: int, n_steps: int) -> np.ndarray:
+    """Predict iteratively, propagating predicted ridership into lag features.
+
+    Matches the inference loop in generate_forecast.py: calendar and weather
+    features use actual values (known at forecast time), but ridership lags are
+    filled with the model's own prior predictions rather than true values.
+    """
+    feature_cols = [c for c in df.columns if c != "daily_ridership"]
+    ridership_lag_cols = {
+        c: int(c.replace("ridership_lag", ""))
+        for c in feature_cols if c.startswith("ridership_lag")
+    }
+
+    predictions: list[float] = []
+
+    for step in range(n_steps):
+        target_idx = test_start_idx + step
+        target_row = df.iloc[target_idx]
+
+        next_row: dict = {}
+        for col in feature_cols:
+            if col in ridership_lag_cols:
+                lag = ridership_lag_cols[col]
+                if len(predictions) >= lag:
+                    next_row[col] = predictions[-lag]
+                else:
+                    next_row[col] = df["daily_ridership"].iloc[target_idx - lag] / 1_000_000
+            elif col == "ridership_14d_avg":
+                history = list(df["daily_ridership"].iloc[max(0, target_idx - 14):target_idx] / 1_000_000)
+                window = (history + predictions)[-14:]
+                next_row[col] = float(np.mean(window)) if window else 0.0
+            elif col == "ridership_7d_std":
+                history = list(df["daily_ridership"].iloc[max(0, target_idx - 14):target_idx] / 1_000_000)
+                window = (history + predictions)[-7:]
+                next_row[col] = float(np.std(window)) if len(window) >= 2 else 0.0
+            else:
+                next_row[col] = float(target_row[col])
+
+        X_next = pd.DataFrame([next_row])[feature_cols]
+        predictions.append(float(model.predict(X_next)[0]))
+
+    return np.array(predictions)
+
+
 def evaluate_xgboost(model_uri: str) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
     df = pd.read_parquet(GOLD_ML_LOCAL_PATH)
     df.index = pd.to_datetime(df.index)
-    feature_cols = [c for c in df.columns if c != "daily_ridership"]
 
-    X_test = df[feature_cols].iloc[-TEST_DAYS:]
+    test_start_idx = len(df) - TEST_DAYS
     y_test = df["daily_ridership"].iloc[-TEST_DAYS:] / 1_000_000
 
     model = mlflow.xgboost.load_model(model_uri)
-    y_pred = model.predict(X_test)
+    y_pred = _xgboost_iterative_predict(model, df, test_start_idx, TEST_DAYS)
 
     mae = mean_absolute_error(y_test, y_pred)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mape = mean_absolute_percentage_error(y_test, y_pred)
-    bias = float(np.mean(np.array(y_pred) - np.array(y_test)))
-    return mae, rmse, mape, bias, np.array(y_pred), np.array(y_test)
+    bias = float(np.mean(y_pred - np.array(y_test)))
+    return mae, rmse, mape, bias, y_pred, np.array(y_test)
 
 
 def _promote(client: MlflowClient, model_name: str, version: int) -> None:

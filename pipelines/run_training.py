@@ -15,10 +15,11 @@ from src.utils.config import (
     S3_GOLD_ML_KEY,
     S3_GOLD_SARIMA_KEY,
     S3_PIPELINE_RUNS_PREFIX,
+    S3_RETRAIN_FLAG_KEY,
     S3_SHAP_KEY,
 )
 from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, upload_s3_file, write_s3_json
+from src.utils.s3_helpers import delete_s3_key, get_s3_client, upload_s3_file, write_s3_json
 
 logger = get_logger(__name__)
 
@@ -55,6 +56,7 @@ def run() -> None:
         shap_path = REPORTS_DIR / "xgboost_shap_summary.png"
         if shap_path.exists():
             upload_s3_file(s3, shap_path, S3_SHAP_KEY)
+        delete_s3_key(s3, S3_RETRAIN_FLAG_KEY)
         logger.info(f"=== Training Pipeline COMPLETE — champion: {champion} ===")
     except Exception as e:
         status = "failure"

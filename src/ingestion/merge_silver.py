@@ -15,6 +15,9 @@ from src.utils.s3_helpers import (
 
 logger = get_logger(__name__)
 
+_REQUIRED_MTA_COLS = {"transit_date", "daily_ridership"}
+_REQUIRED_WEATHER_COLS = {"datetime", "temp", "precip", "snow"}
+
 
 def run() -> None:
     logger.info("Starting silver merge")
@@ -39,6 +42,12 @@ def run() -> None:
 
     logger.info(f"Processing {len(mta_keys)} MTA file(s)")
     df_new_mta = pd.concat([read_s3_csv(s3, k) for k in mta_keys], ignore_index=True)
+
+    missing_mta = _REQUIRED_MTA_COLS - set(df_new_mta.columns)
+    if missing_mta:
+        logger.error(f"MTA data missing required columns: {missing_mta} — aborting silver merge")
+        return
+
     df_new_mta["transit_date"] = pd.to_datetime(df_new_mta["transit_date"])
     df_new_mta = df_new_mta[df_new_mta["transit_date"] > last_silver_date]
 
@@ -55,6 +64,12 @@ def run() -> None:
 
     logger.info(f"Processing {len(weather_keys)} weather file(s)")
     df_weather = pd.concat([read_s3_csv(s3, k) for k in weather_keys], ignore_index=True)
+
+    missing_weather = _REQUIRED_WEATHER_COLS - set(df_weather.columns)
+    if missing_weather:
+        logger.error(f"Weather data missing required columns: {missing_weather} — aborting silver merge")
+        return
+
     df_weather["datetime"] = pd.to_datetime(df_weather["datetime"])
 
     relevant_dates = df_new_mta["transit_date"].unique()

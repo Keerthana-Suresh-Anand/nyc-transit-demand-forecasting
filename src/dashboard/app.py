@@ -12,7 +12,6 @@ from src.dashboard.utils.data_loader import (
     load_shap_image,
     load_weather_forecast,
 )
-from src.utils.config import MTA_START_DATE
 
 st.set_page_config(
     page_title="NYC Transit Demand Forecast",
@@ -85,7 +84,7 @@ fc_rows["date"] = pd.to_datetime(fc_rows["date"])
 st.divider()
 
 # ─── KPIs ─────────────────────────────────────────────────────────────────────
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3 = st.columns(3)
 
 if perf_df is not None and len(perf_df) > 0:
     k1.metric("Ensemble MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
@@ -103,10 +102,6 @@ k3.metric(
     f"{fc_rows['date'].min().strftime('%b %d')} – {fc_rows['date'].max().strftime('%b %d')}",
 )
 k3.caption(f"{len(fc_rows)}-day window")
-
-training_days = (history.index.max() - pd.Timestamp(MTA_START_DATE)).days
-k4.metric("Training Data", f"{training_days:,} days")
-k4.caption(f"Jan 2022 – {history.index.max().strftime('%b %Y')}")
 
 st.divider()
 
@@ -188,9 +183,9 @@ st.divider()
 st.subheader("Weather as a Predictive Signal")
 
 hist_30 = history.iloc[-30:]
-weather_col, shap_col = st.columns([1, 1])
+temp_col, precip_col, shap_col = st.columns([1, 1, 1])
 
-with weather_col:
+with temp_col:
     fig_temp = go.Figure()
     if "temp" in hist_30.columns:
         fig_temp.add_trace(go.Scatter(
@@ -209,12 +204,13 @@ with weather_col:
         xref="x", yref="paper", line=dict(color=_C["today"]),
     )
     fig_temp.update_layout(
-        title="Temperature (°F)", height=220,
-        margin=dict(t=40, b=20, l=40, r=20), hovermode="x unified",
+        title="Temperature (°F)", height=340,
+        margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_temp, use_container_width=True)
 
+with precip_col:
     fig_precip = go.Figure()
     if "precip" in hist_30.columns:
         fig_precip.add_trace(go.Bar(
@@ -231,9 +227,9 @@ with weather_col:
         xref="x", yref="paper", line=dict(color=_C["today"]),
     )
     fig_precip.update_layout(
-        title="Precipitation (in)", height=220,
+        title="Precipitation (in)", height=340,
         barmode="overlay",
-        margin=dict(t=40, b=20, l=40, r=20), hovermode="x unified",
+        margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_precip, use_container_width=True)

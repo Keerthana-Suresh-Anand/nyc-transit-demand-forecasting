@@ -113,11 +113,37 @@ def run() -> None:
         explainer = shap.TreeExplainer(final_model)
         shap_values = explainer.shap_values(X_test)
 
-        fig_shap, ax_shap = plt.subplots(figsize=(10, 7))
-        shap.summary_plot(shap_values, X_test, show=False)
+        _FEATURE_LABELS = {
+            "temp":            "Temperature (°F)",
+            "precip":          "Precipitation (in)",
+            "snow":            "Snow (in)",
+            "is_holiday":      "Holiday",
+            "snow_lag1":       "Snow Lag 1 (in)",
+            "day_of_week":     "Day of Week",
+            "month":           "Month",
+            "is_weekend":      "Weekend",
+            "ridership_lag1":  "Ridership Lag 1 (M)",
+            "ridership_lag2":  "Ridership Lag 2 (M)",
+            "ridership_lag3":  "Ridership Lag 3 (M)",
+            "ridership_lag7":  "Ridership Lag 7 (M)",
+            "ridership_lag14": "Ridership Lag 14 (M)",
+            "ridership_14d_avg": "14-Day Avg Ridership (M)",
+            "ridership_7d_std":  "7-Day Std Ridership (M)",
+            "precip_lag1":     "Precipitation Lag 1 (in)",
+            "temp_lag1":       "Temperature Lag 1 (°F)",
+        }
+        X_test_labeled = X_test.rename(columns=_FEATURE_LABELS)
+
         shap_path = REPORTS_DIR / "xgboost_shap_summary.png"
-        fig_shap.savefig(shap_path, dpi=150, bbox_inches="tight")
-        plt.close(fig_shap)
+        with plt.style.context("dark_background"):
+            fig_shap, _ = plt.subplots(figsize=(10, 7))
+            fig_shap.patch.set_facecolor("#0e1117")
+            shap.summary_plot(shap_values, X_test_labeled, show=False)
+            plt.gcf().set_facecolor("#0e1117")
+            for ax in plt.gcf().get_axes():
+                ax.set_facecolor("#0e1117")
+            fig_shap.savefig(shap_path, dpi=150, bbox_inches="tight", facecolor="#0e1117")
+            plt.close(fig_shap)
         mlflow.log_artifact(str(shap_path))
 
         mlflow.xgboost.log_model(

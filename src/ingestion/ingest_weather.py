@@ -65,7 +65,7 @@ def run() -> None:
     else:
         logger.info("No new historical weather needed")
 
-    forecast_start = date.today()
+    forecast_start = mta_last_date + timedelta(days=1)
     forecast_end = forecast_start + timedelta(days=WEATHER_FORECAST_DAYS)
     df_forecast = fetch_weather(forecast_start, forecast_end)
     forecast_key = f"{S3_WEATHER_FORECAST_PREFIX}weather_forecast_run_{date.today()}.csv"

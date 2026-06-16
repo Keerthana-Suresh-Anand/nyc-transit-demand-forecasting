@@ -43,7 +43,7 @@ with st.sidebar:
     st.caption("Weather-Driven Ridership Forecasting")
     st.divider()
 
-    st.caption("Python · SARIMAX · XGBoost · MLflow · AWS S3 · GitHub Actions")
+    st.caption("Python · SARIMAX · XGBoost · MLflow · DVC · Docker · AWS S3 · GitHub Actions")
     st.divider()
 
     st.markdown("**Pipeline Health**")
@@ -80,28 +80,6 @@ if forecast_data is None or history is None:
 
 fc_rows = pd.DataFrame(forecast_data["forecasts"])
 fc_rows["date"] = pd.to_datetime(fc_rows["date"])
-
-st.divider()
-
-# ─── KPIs ─────────────────────────────────────────────────────────────────────
-k1, k2, k3 = st.columns(3)
-
-if perf_df is not None and len(perf_df) > 0:
-    k1.metric("Ensemble MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
-    k1.caption(f"Last {perf_df['forecast_run_date'].nunique()} forecast runs")
-    k2.metric("Mean |Error|", f"{perf_df['error_M'].abs().mean():.3f} M")
-    k2.caption("Daily ridership · millions")
-else:
-    k1.metric("Ensemble MAPE", "—")
-    k1.caption("Accumulates as forecasts age into the past")
-    k2.metric("Mean |Error|", "—")
-    k2.caption("Daily ridership · millions")
-
-k3.metric(
-    "Forecast Period",
-    f"{fc_rows['date'].min().strftime('%b %d')} – {fc_rows['date'].max().strftime('%b %d')}",
-)
-k3.caption(f"{len(fc_rows)}-day window")
 
 st.divider()
 
@@ -155,13 +133,38 @@ fig.add_trace(go.Scatter(
     marker=dict(size=5),
 ))
 
+last_actual_date = history.index.max().date()
+today_date = date.today()
+
+# Shade the MTA data lag zone between last actual and today
+if last_actual_date < today_date:
+    mid_ts = pd.Timestamp(last_actual_date) + (
+        pd.Timestamp(today_date) - pd.Timestamp(last_actual_date)
+    ) / 2
+    fig.add_shape(
+        type="rect",
+        x0=str(last_actual_date), x1=str(today_date),
+        y0=0, y1=1,
+        xref="x", yref="paper",
+        fillcolor="rgba(255,255,255,0.04)",
+        line=dict(width=0),
+    )
+    fig.add_annotation(
+        x=str(mid_ts), y=0.96,
+        xref="x", yref="paper",
+        text="MTA data lag",
+        showarrow=False,
+        font=dict(size=9, color="rgba(255,255,255,0.35)"),
+        yanchor="top",
+    )
+
 fig.add_shape(
-    type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
+    type="line", x0=str(today_date), x1=str(today_date), y0=0, y1=1,
     xref="x", yref="paper",
     line=dict(color=_C["today"]),
 )
 fig.add_annotation(
-    x=str(date.today()), y=1, xref="x", yref="paper",
+    x=str(today_date), y=1, xref="x", yref="paper",
     text="Today", showarrow=False, yanchor="bottom", xanchor="right",
 )
 
@@ -281,6 +284,11 @@ if perf_df is not None and len(perf_df) > 0:
         margin=dict(l=50, r=30, t=40, b=50),
     )
     st.plotly_chart(fig_scatter, use_container_width=True)
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
+    m2.metric("MAE", f"{perf_df['error_M'].abs().mean():.3f} M")
+    m3.metric("Forecast Runs", perf_df["forecast_run_date"].nunique())
 else:
     st.info(
         "No forecast comparisons available yet. "

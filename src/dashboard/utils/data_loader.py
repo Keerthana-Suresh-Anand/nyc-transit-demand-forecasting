@@ -147,7 +147,7 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
 
     today = date.today()
     chunks = []
-    for key in parquet_keys[-8:]:
+    for key in parquet_keys:
         parts = key.rsplit("forecast_", 1)
         if len(parts) < 2:
             logger.warning("Unexpected forecast key format: %s", key)

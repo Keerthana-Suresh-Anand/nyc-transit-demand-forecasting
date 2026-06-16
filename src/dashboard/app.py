@@ -1,5 +1,6 @@
 from datetime import date
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -10,7 +11,6 @@ from src.dashboard.utils.data_loader import (
     load_past_forecasts_vs_actuals,
     load_pipeline_status,
     load_shap_image,
-    load_weather_forecast,
 )
 
 st.set_page_config(
@@ -31,10 +31,9 @@ _C = {
 # ─── Data loading ─────────────────────────────────────────────────────────────
 with st.spinner("Loading dashboard data..."):
     forecast_data = load_forecast()
-    history = load_history(days=120)
+    history = load_history(days=365)
     pipeline_status = load_pipeline_status()
     perf_df = load_past_forecasts_vs_actuals()
-    weather_fc = load_weather_forecast()
     shap_img = load_shap_image()
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -185,67 +184,57 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Weather as a Predictive Signal")
 
-hist_30 = history.iloc[-30:]
-temp_col, precip_col, shap_col = st.columns([1, 1, 1])
+hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
+ridership_M = hist_wx["daily_ridership"] / 1_000_000
+temp_col, precip_col = st.columns([1, 1])
 
 with temp_col:
+    z = np.polyfit(hist_wx["temp"], ridership_M, 1)
+    x_line = np.linspace(hist_wx["temp"].min(), hist_wx["temp"].max(), 100)
     fig_temp = go.Figure()
-    if "temp" in hist_30.columns:
-        fig_temp.add_trace(go.Scatter(
-            x=hist_30.index, y=hist_30["temp"],
-            mode="lines", name="Historical",
-            line=dict(color=_C["blue"], dash="dot"),
-        ))
-    if weather_fc is not None and "temp" in weather_fc.columns:
-        fig_temp.add_trace(go.Scatter(
-            x=weather_fc["datetime"], y=weather_fc["temp"],
-            mode="lines+markers", name="Forecast",
-            line=dict(color=_C["orange"]),
-        ))
-    fig_temp.add_shape(
-        type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
-        xref="x", yref="paper", line=dict(color=_C["today"]),
-    )
+    fig_temp.add_trace(go.Scatter(
+        x=hist_wx["temp"], y=ridership_M,
+        mode="markers", name="Daily",
+        marker=dict(color=_C["blue"], size=5, opacity=0.45),
+        hovertemplate="Temp: %{x:.1f}°C<br>Ridership: %{y:.2f}M<extra></extra>",
+    ))
+    fig_temp.add_trace(go.Scatter(
+        x=x_line, y=np.poly1d(z)(x_line),
+        mode="lines", name="Trend",
+        line=dict(color=_C["orange"], width=2),
+        hoverinfo="skip",
+    ))
     fig_temp.update_layout(
-        title="Temperature (°F)", height=340,
-        margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
+        title="Temperature vs Ridership",
+        xaxis_title="Temperature (°C)", yaxis_title="Ridership (M)",
+        height=340, margin=dict(t=40, b=30, l=40, r=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_temp, use_container_width=True)
 
 with precip_col:
+    z = np.polyfit(hist_wx["precip"], ridership_M, 1)
+    x_line = np.linspace(hist_wx["precip"].min(), hist_wx["precip"].max(), 100)
     fig_precip = go.Figure()
-    if "precip" in hist_30.columns:
-        fig_precip.add_trace(go.Bar(
-            x=hist_30.index, y=hist_30["precip"],
-            name="Historical", marker_color=_C["blue"],
-        ))
-    if weather_fc is not None and "precip" in weather_fc.columns:
-        fig_precip.add_trace(go.Bar(
-            x=weather_fc["datetime"], y=weather_fc["precip"],
-            name="Forecast", marker_color=_C["orange"],
-        ))
-    fig_precip.add_shape(
-        type="line", x0=str(date.today()), x1=str(date.today()), y0=0, y1=1,
-        xref="x", yref="paper", line=dict(color=_C["today"]),
-    )
+    fig_precip.add_trace(go.Scatter(
+        x=hist_wx["precip"], y=ridership_M,
+        mode="markers", name="Daily",
+        marker=dict(color=_C["blue"], size=5, opacity=0.45),
+        hovertemplate="Precip: %{x:.2f} mm<br>Ridership: %{y:.2f}M<extra></extra>",
+    ))
+    fig_precip.add_trace(go.Scatter(
+        x=x_line, y=np.poly1d(z)(x_line),
+        mode="lines", name="Trend",
+        line=dict(color=_C["orange"], width=2),
+        hoverinfo="skip",
+    ))
     fig_precip.update_layout(
-        title="Precipitation (in)", height=340,
-        barmode="overlay",
-        margin=dict(t=40, b=30, l=40, r=20), hovermode="x unified",
+        title="Precipitation vs Ridership",
+        xaxis_title="Precipitation (mm)", yaxis_title="Ridership (M)",
+        height=340, margin=dict(t=40, b=30, l=40, r=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_precip, use_container_width=True)
-
-with shap_col:
-    if shap_img:
-        st.image(
-            shap_img,
-            caption="SHAP feature importance — which variables most influence the XGBoost forecast",
-            use_container_width=True,
-        )
-    else:
-        st.info("SHAP image not available. Run the training pipeline to generate and upload it.")
 
 st.divider()
 
@@ -284,6 +273,13 @@ if perf_df is not None and len(perf_df) > 0:
         margin=dict(l=50, r=30, t=40, b=50),
     )
     st.plotly_chart(fig_scatter, use_container_width=True)
+
+    if shap_img:
+        st.image(
+            shap_img,
+            caption="XGBoost feature importance — ridership momentum (lags) dominates; weather adds signal at the margin",
+            use_container_width=True,
+        )
 
     m1, m2, m3 = st.columns(3)
     m1.metric("MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")

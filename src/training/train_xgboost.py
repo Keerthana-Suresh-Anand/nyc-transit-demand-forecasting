@@ -115,10 +115,10 @@ def run() -> None:
 
         _FEATURE_LABELS = {
             "temp":            "Temperature (°C)",
-            "precip":          "Precipitation (in)",
-            "snow":            "Snow (in)",
+            "precip":          "Precipitation (mm)",
+            "snow":            "Snow (mm)",
             "is_holiday":      "Holiday",
-            "snow_lag1":       "Snow Lag 1 (in)",
+            "snow_lag1":       "Snow Lag 1 (mm)",
             "day_of_week":     "Day of Week",
             "month":           "Month",
             "is_weekend":      "Weekend",
@@ -129,7 +129,7 @@ def run() -> None:
             "ridership_lag14": "Ridership Lag 14 (M)",
             "ridership_14d_avg": "14-Day Avg Ridership (M)",
             "ridership_7d_std":  "7-Day Std Ridership (M)",
-            "precip_lag1":     "Precipitation Lag 1 (in)",
+            "precip_lag1":     "Precipitation Lag 1 (mm)",
             "temp_lag1":       "Temperature Lag 1 (°C)",
         }
         X_test_labeled = X_test.rename(columns=_FEATURE_LABELS)
@@ -139,9 +139,19 @@ def run() -> None:
             fig_shap, _ = plt.subplots(figsize=(10, 7))
             fig_shap.patch.set_facecolor("#0e1117")
             shap.summary_plot(shap_values, X_test_labeled, show=False)
-            plt.gcf().set_facecolor("#0e1117")
-            for ax in plt.gcf().get_axes():
+            fig = plt.gcf()
+            fig.set_facecolor("#0e1117")
+            for ax in fig.get_axes():
                 ax.set_facecolor("#0e1117")
+                ax.tick_params(colors="white", labelcolor="white")
+                ax.xaxis.label.set_color("white")
+                ax.yaxis.label.set_color("white")
+                for text in ax.get_xticklabels() + ax.get_yticklabels():
+                    text.set_color("white")
+                for spine in ax.spines.values():
+                    spine.set_edgecolor("white")
+            for text in fig.findobj(plt.Text):
+                text.set_color("white")
             fig_shap.savefig(shap_path, dpi=150, bbox_inches="tight", facecolor="#0e1117")
             plt.close(fig_shap)
         mlflow.log_artifact(str(shap_path))

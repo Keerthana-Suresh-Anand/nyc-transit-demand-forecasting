@@ -83,9 +83,13 @@ fc_rows["date"] = pd.to_datetime(fc_rows["date"])
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 1 — 14-DAY RIDERSHIP FORECAST
+# SECTION 1 — RIDERSHIP FORECAST
 # ══════════════════════════════════════════════════════════════════════════════
-st.subheader("14-Day Ridership Forecast")
+st.subheader("Latest Ridership Forecast")
+run_date = forecast_data.get("run_date", "—")
+fc_start = fc_rows["date"].min().strftime("%b %-d")
+fc_end = fc_rows["date"].max().strftime("%b %-d")
+st.caption(f"Generated {run_date} · {fc_start}–{fc_end}")
 
 fig = go.Figure()
 
@@ -275,11 +279,13 @@ if perf_df is not None and len(perf_df) > 0:
     st.plotly_chart(fig_scatter, use_container_width=True)
 
     if shap_img:
-        st.image(
-            shap_img,
-            caption="XGBoost feature importance — ridership momentum (lags) dominates; weather adds signal at the margin",
-            use_container_width=True,
-        )
+        _, shap_col, _ = st.columns([1, 2, 1])
+        with shap_col:
+            st.image(
+                shap_img,
+                caption="XGBoost feature importance — ridership momentum (lags) dominates; weather adds signal at the margin",
+                use_container_width=True,
+            )
 
     m1, m2, m3 = st.columns(3)
     m1.metric("MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")

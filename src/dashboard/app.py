@@ -10,6 +10,7 @@ from src.dashboard.utils.data_loader import (
     load_history,
     load_past_forecasts_vs_actuals,
     load_pipeline_status,
+    load_sarimax_coefficients,
     load_shap_image,
 )
 
@@ -35,6 +36,7 @@ with st.spinner("Loading dashboard data..."):
     pipeline_status = load_pipeline_status()
     perf_df = load_past_forecasts_vs_actuals()
     shap_img = load_shap_image()
+    sarimax_coef = load_sarimax_coefficients()
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -59,8 +61,8 @@ with st.sidebar:
 
     st.divider()
     if forecast_data:
-        sarimax_w = forecast_data.get("sarimax_weight", 0.6)
-        xgb_w = forecast_data.get("xgboost_weight", 0.4)
+        sarimax_w = forecast_data.get("sarimax_weight", 0.5)
+        xgb_w = forecast_data.get("xgboost_weight", 0.5)
         st.caption(f"Ensemble: SARIMAX {sarimax_w:.0%} + XGBoost {xgb_w:.0%}")
 
 # ─── Page header ──────────────────────────────────────────────────────────────
@@ -250,7 +252,6 @@ st.subheader("Model Accuracy")
 if perf_df is not None and len(perf_df) > 0:
     min_val = min(perf_df["actual_M"].min(), perf_df["ensemble_forecast_M"].min()) * 0.98
     max_val = max(perf_df["actual_M"].max(), perf_df["ensemble_forecast_M"].max()) * 1.02
-
     fig_scatter = go.Figure()
     fig_scatter.add_trace(go.Scatter(
         x=[min_val, max_val], y=[min_val, max_val],
@@ -278,17 +279,53 @@ if perf_df is not None and len(perf_df) > 0:
     )
     st.plotly_chart(fig_scatter, use_container_width=True)
 
-    if shap_img:
-        st.image(
-            shap_img,
-            caption="XGBoost feature importance — ridership momentum (lags) dominates; weather adds signal at the margin",
-            width=550,
-        )
-
     m1, m2, m3 = st.columns(3)
     m1.metric("MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
     m2.metric("MAE", f"{perf_df['error_M'].abs().mean():.3f} M")
     m3.metric("Forecast Runs", perf_df["forecast_run_date"].nunique())
+
+    # ── Interpretability for both ensemble components (50% each) ──────────────
+    st.markdown("**How each model reasons** — interpretability for both halves of the ensemble")
+    shap_col, coef_col = st.columns([1, 1])
+
+    with shap_col:
+        if shap_img:
+            st.image(
+                shap_img,
+                caption="XGBoost — SHAP feature importance: ridership-lag momentum dominates; weather adds signal at the margin",
+                use_container_width=True,
+            )
+        else:
+            st.info("XGBoost SHAP plot generates on the next training run.")
+
+    with coef_col:
+        if sarimax_coef and sarimax_coef.get("exog_coefficients"):
+            _LABELS = {"temp": "Temperature", "precip": "Precipitation",
+                       "snow_lag1": "Snow (prev day)", "is_holiday": "Holiday"}
+            recs = sarimax_coef["exog_coefficients"]
+            names = [_LABELS.get(r["feature"], r["feature"]) for r in recs]
+            vals = [r["coefficient"] for r in recs]
+            colors = [_C["teal"] if v >= 0 else _C["red"] for v in vals]
+            opac = [1.0 if r["p_value"] < 0.05 else 0.4 for r in recs]
+            fig_coef = go.Figure(go.Bar(
+                x=vals, y=names, orientation="h",
+                marker=dict(color=colors, opacity=opac),
+                hovertemplate="%{y}: %{x:.3f}<extra></extra>",
+            ))
+            fig_coef.add_shape(
+                type="line", x0=0, x1=0, y0=-0.5, y1=len(names) - 0.5,
+                line=dict(color="rgba(255,255,255,0.3)"),
+            )
+            fig_coef.update_layout(
+                height=420,
+                xaxis_title="Coefficient on scaled input (+ raises / − lowers ridership)",
+                margin=dict(l=10, r=20, t=30, b=50),
+            )
+            st.plotly_chart(fig_coef, use_container_width=True)
+            st.caption("SARIMAX — weather/holiday effects (inputs scaled 0–1, so bars are comparable). "
+                       "Faded bars are not significant (p ≥ 0.05).")
+        else:
+            st.info("SARIMAX coefficients generate on the next training run.")
 else:
     st.info(
         "No forecast comparisons available yet. "

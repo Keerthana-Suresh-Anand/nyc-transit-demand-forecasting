@@ -189,9 +189,14 @@ def evaluate_baselines() -> dict:
     weekday last week); persistence forecasts each day as the previous day.
     For daily ridership with strong weekly seasonality, seasonal-naive is the
     standard hard-to-beat benchmark — the models must beat it to justify their
-    complexity.
+    complexity. Informational only — never raises, so missing gold data cannot
+    block champion selection or promotion.
     """
-    df = pd.read_parquet(GOLD_SARIMA_LOCAL_PATH)
+    try:
+        df = pd.read_parquet(GOLD_SARIMA_LOCAL_PATH)
+    except (FileNotFoundError, OSError) as e:
+        logger.warning(f"Baselines skipped — gold SARIMA data unavailable: {e}")
+        return {}
     df.index = pd.to_datetime(df.index)
     df = df.asfreq("D")
     y = df["daily_ridership"] / 1_000_000

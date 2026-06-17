@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from src.evaluation.evaluate_models import run
-from src.utils.config import SARIMAX_MODEL_NAME, XGBOOST_MODEL_NAME
+from src.utils.config import (
+    ENSEMBLE_SARIMAX_WEIGHT,
+    ENSEMBLE_XGB_WEIGHT,
+    SARIMAX_MODEL_NAME,
+    XGBOOST_MODEL_NAME,
+)
 
 _PRED = np.array([0.1] * 30)
 _ACTUAL = np.array([0.1] * 30)
@@ -190,8 +195,9 @@ class TestEnsembleBaseline:
         """Ensemble MAE should be written to S3 after evaluation."""
         sarimax_pred = np.array([0.10] * 30)
         xgb_pred = np.array([0.20] * 30)
-        actual = np.array([0.15] * 30)
-        expected_ensemble = 0.6 * sarimax_pred + 0.4 * xgb_pred  # = 0.14 each
+        actual = np.array([0.16] * 30)
+        # Use the configured ensemble weights so this test tracks config changes.
+        expected_ensemble = ENSEMBLE_SARIMAX_WEIGHT * sarimax_pred + ENSEMBLE_XGB_WEIGHT * xgb_pred
         expected_mae = float(np.mean(np.abs(expected_ensemble - actual)))
 
         sarimax_metrics = (0.05, 0.07, 0.02, 0.01, sarimax_pred, actual)

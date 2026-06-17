@@ -15,6 +15,7 @@ from src.utils.config import (
     REPORTS_DIR,
     XGBOOST_MODEL_NAME,
 )
+from src.utils.features import cast_categoricals
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ XGB_PARAMS = {
     "early_stopping_rounds": 50,
     "eval_metric": "mae",
     "random_state": 42,
+    "enable_categorical": True,
 }
 
 
@@ -47,6 +49,7 @@ def run() -> None:
     logger.info("Loading ML gold data")
     df = pd.read_parquet(GOLD_ML_LOCAL_PATH)
     df.index = pd.to_datetime(df.index)
+    df = cast_categoricals(df)  # parquet does not preserve category dtype
 
     feature_cols = get_feature_cols(df)
     X = df[feature_cols]

@@ -28,6 +28,10 @@ def run() -> pd.DataFrame:
     df = df.dropna()
     logger.info(f"Dropped {rows_before - len(df)} rows due to NaN from lag/rolling operations")
 
+    # NOTE: day_of_week and month are written as plain ints. The parquet
+    # round-trip does not preserve pandas category dtype, so the categorical
+    # cast is applied on read instead (see src/utils/features.cast_categoricals),
+    # consistently in training, evaluation, and inference.
     GOLD_ML_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(GOLD_ML_LOCAL_PATH)
 

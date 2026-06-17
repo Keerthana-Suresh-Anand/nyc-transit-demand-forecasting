@@ -26,6 +26,7 @@ from src.utils.config import (
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
+from src.utils.features import cast_categoricals
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
     get_s3_client,
@@ -153,7 +154,7 @@ def xgboost_forecast(df_ml: pd.DataFrame, weather_fcst: pd.DataFrame, start_date
         next_row["ridership_14d_avg"] = np.mean(recent_ridership[-14:])
         next_row["ridership_7d_std"] = np.std(recent_ridership[-7:])
 
-        X_next = pd.DataFrame([next_row])[feature_cols]
+        X_next = cast_categoricals(pd.DataFrame([next_row])[feature_cols])
         pred = float(model.predict(X_next)[0])
         predictions.append(pred)
 

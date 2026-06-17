@@ -25,6 +25,7 @@ from src.utils.config import (
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
+from src.utils.features import CATEGORICAL_FEATURES, cast_categoricals
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client, write_s3_json
 
@@ -97,10 +98,14 @@ def _xgboost_iterative_predict(model, df: pd.DataFrame, test_start_idx: int, n_s
                 history = list(df["daily_ridership"].iloc[max(0, target_idx - 14):target_idx] / 1_000_000)
                 window = (history + predictions)[-7:]
                 next_row[col] = float(np.std(window)) if len(window) >= 2 else 0.0
+            elif col in CATEGORICAL_FEATURES:
+                # Keep as int — floating then re-casting to a fixed integer
+                # category range would turn the value into NaN.
+                next_row[col] = int(target_row[col])
             else:
                 next_row[col] = float(target_row[col])
 
-        X_next = pd.DataFrame([next_row])[feature_cols]
+        X_next = cast_categoricals(pd.DataFrame([next_row])[feature_cols])
         predictions.append(float(model.predict(X_next)[0]))
 
     return np.array(predictions)
@@ -109,6 +114,7 @@ def _xgboost_iterative_predict(model, df: pd.DataFrame, test_start_idx: int, n_s
 def evaluate_xgboost(model_uri: str) -> tuple[float, float, float, float, np.ndarray, np.ndarray]:
     df = pd.read_parquet(GOLD_ML_LOCAL_PATH)
     df.index = pd.to_datetime(df.index)
+    df = cast_categoricals(df)  # parquet does not preserve category dtype
 
     test_start_idx = len(df) - TEST_DAYS
     y_test = df["daily_ridership"].iloc[-TEST_DAYS:] / 1_000_000

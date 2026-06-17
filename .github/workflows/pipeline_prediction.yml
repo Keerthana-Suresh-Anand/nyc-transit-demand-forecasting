@@ -25,24 +25,24 @@ jobs:
       - name: Install DVC
         run: pip install "dvc[s3]>=3.0"
 
-      - name: Download data and MLflow state from S3
+      - name: Pull silver data via DVC
         run: |
           mkdir -p data/silver data/gold mlruns
+          dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
+          dvc pull data/silver/mta_weather_merged.parquet
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Download MLflow state from S3
+        run: |
           aws s3 cp s3://$AWS_BUCKET_NAME/mlflow/mlflow.db mlflow.db
           aws s3 sync s3://$AWS_BUCKET_NAME/mlflow/mlruns/ mlruns/
           if [ -z "$(ls -A mlruns/)" ]; then
             echo "ERROR: mlruns/ is empty after S3 sync — run the training pipeline first"
             exit 1
           fi
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
-      - name: Pull gold data via DVC
-        run: |
-          dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
-          dvc pull data/gold/mta_sarima.parquet data/gold/mta_ml.parquet
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}

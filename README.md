@@ -37,10 +37,45 @@ Captures weekly and annual seasonality with weather exogenous variables (tempera
 Uses lag features (ridership 1, 2, 3, 7, 14 days prior), rolling statistics (14-day average, 7-day std), and calendar features. SHAP values are computed at each run for explainability.
 
 ### Ensemble
-Predictions are blended: **60% SARIMAX + 40% XGBoost** (default weights, tunable in `src/utils/config.py`).
+Predictions are blended **50% SARIMAX + 50% XGBoost** (tunable in `src/utils/config.py`). Equal weights are a deliberate, evidence-based choice — see [Model evaluation](#model-evaluation) below.
 
 ### Champion selection
-Both models are evaluated on the same 30-day holdout set. The lower **MAE** model is promoted to `Production` in the MLflow registry; the other moves to `Staging`. MAE is preferred over RMSE for champion selection because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
+Both models are evaluated on the same 60-day holdout. Each family is promoted to `Production` in the MLflow registry only if the new version beats the current Production version of that family — so **both** SARIMAX and XGBoost live in `Production` simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
+
+---
+
+## Model evaluation
+
+Reported accuracy is meaningless without two things: a **naive baseline** to beat, and an evaluation that **matches how the models are actually served**. Both are part of the evaluation.
+
+### Baselines
+
+| Benchmark | What it assumes |
+|-----------|-----------------|
+| Persistence (t-1) | Tomorrow equals today |
+| Seasonal-naive (m=7) | Each day equals the same weekday last week |
+
+Seasonal-naive is the hard-to-beat benchmark for daily ridership — weekly seasonality is the dominant pattern. Any model that doesn't clearly beat it isn't earning its complexity.
+
+### Evaluation method
+
+Models are scored with **14-day rolling-origin walk-forward** — the horizon and weekly re-anchoring cadence the system actually uses in production. A single long holdout would unfairly penalize XGBoost, whose recursive lag features compound error over long horizons it never serves; evaluating at the true 14-day horizon removes that artifact.
+
+### Results (latest walk-forward, 11 weekly origins / 154 forecast points)
+
+| Model | MAE (M) | MAPE |
+|-------|---------|------|
+| Persistence | 0.757 | 30.4% |
+| Seasonal-naive (m=7) | 0.305 | 10.0% |
+| SARIMAX | 0.258 | 9.3% |
+| XGBoost | 0.255 | 8.7% |
+| **Ensemble 50/50** | **0.248** | 8.8% |
+
+Both models beat seasonal-naive by ~15%, justifying the modeling effort.
+
+### Why 50/50 (and not a tuned weight)
+
+Block-bootstrapped 95% confidence intervals on the pairwise MAE differences (10,000 resamples over whole origins) **all span zero** — SARIMAX vs XGBoost, and the ensemble vs either individual model, are **statistically indistinguishable** on the current data. When no model is reliably better, equal weighting is the honest choice; tuning a precise weight would overfit noise. A heavier weight will only be justified once a longer evaluation window (more origins, multiple seasons) tightens the intervals enough to show a real difference.
 
 ---
 
@@ -99,13 +134,14 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 ## Dashboard
 
-Three tabs — accessible at the Streamlit Community Cloud URL without any local setup:
+A single scrollable page — accessible at the Streamlit Community Cloud URL without any local setup:
 
 > `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`.
 
-- **Forecast** — 90-day historical actuals + 14-day ensemble forecast with confidence intervals, SARIMAX and XGBoost lines, NYC event annotations, weather context
-- **Model Performance** — past forecasts vs actuals table, weekly MAE bar chart, PSI drift indicator, SHAP feature importance
-- **Pipeline Status** — last run dates for each pipeline, data freshness indicator, schedule reference
+- **Sidebar** — tech stack, pipeline health badges with last-run dates, and the active ensemble weights
+- **Latest Ridership Forecast** — historical actuals + 14-day ensemble forecast with confidence intervals, individual SARIMAX and XGBoost lines, a shaded "MTA data lag" zone, and a today marker; captioned with the forecast's generation date and window
+- **Weather as a Predictive Signal** — temperature-vs-ridership and precipitation-vs-ridership scatter plots with trend lines, demonstrating the weather signal directly
+- **Model Accuracy** — predicted-vs-actual scatter against a perfect-forecast diagonal, XGBoost SHAP feature importance, and MAPE / MAE / forecast-run-count metrics
 
 ---
 
@@ -158,7 +194,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **Granularity:** daily city-wide forecasting is the right scope for 14 months of data. Line-level or station-level forecasting is the natural next step with 3+ years of history.
 - **Event features:** NYC events (concerts, sports) are displayed as dashboard annotations but not yet used as model features — too sparse for a 460-day daily model.
 - **MLflow hosting:** runs on local SQLite synced to S3. A production deployment would use a shared MLflow tracking server backed by PostgreSQL on RDS.
-- **Ensemble weights:** 60/40 SARIMAX/XGBoost is a reasonable default. Weights should be tuned based on accumulated holdout performance after several months of automated runs.
+- **Ensemble weights:** currently 50/50, chosen because the two models are statistically indistinguishable on the current evaluation window. A longer history (more walk-forward origins across multiple seasons) would tighten the confidence intervals and could justify an asymmetric weight.
 - **Historical backfill:** current training data starts from January 2025. Incorporating 2023–2024 MTA ridership would extend the training window to 3 years and improve seasonal pattern estimation.
 - **Docker-based pipeline execution:** GitHub Actions currently installs dependencies directly via `pip`. A more production-grade approach would have workflows pull and run the published Docker image, ensuring the CI environment is identical to any other deployment target.
 

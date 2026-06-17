@@ -111,53 +111,59 @@ def run() -> None:
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))
 
-        import shap
-        logger.info("Computing SHAP values")
-        explainer = shap.TreeExplainer(final_model)
-        shap_values = explainer.shap_values(X_test)
+        # SHAP runs before model registration below. Native categorical features
+        # can trip up TreeExplainer on some shap/xgboost versions, so a failure
+        # here must not abort the run and leave the model unregistered.
+        try:
+            import shap
+            logger.info("Computing SHAP values on full dataset")
+            explainer = shap.TreeExplainer(final_model)
+            shap_values = explainer.shap_values(X)
 
-        _FEATURE_LABELS = {
-            "temp":            "Temperature (°C)",
-            "precip":          "Precipitation (mm)",
-            "snow":            "Snow (mm)",
-            "is_holiday":      "Holiday",
-            "snow_lag1":       "Snow Lag 1 (mm)",
-            "day_of_week":     "Day of Week",
-            "month":           "Month",
-            "is_weekend":      "Weekend",
-            "ridership_lag1":  "Ridership Lag 1 (M)",
-            "ridership_lag2":  "Ridership Lag 2 (M)",
-            "ridership_lag3":  "Ridership Lag 3 (M)",
-            "ridership_lag7":  "Ridership Lag 7 (M)",
-            "ridership_lag14": "Ridership Lag 14 (M)",
-            "ridership_14d_avg": "14-Day Avg Ridership (M)",
-            "ridership_7d_std":  "7-Day Std Ridership (M)",
-            "precip_lag1":     "Precipitation Lag 1 (mm)",
-            "temp_lag1":       "Temperature Lag 1 (°C)",
-        }
-        X_test_labeled = X_test.rename(columns=_FEATURE_LABELS)
+            _FEATURE_LABELS = {
+                "temp":            "Temperature (°C)",
+                "precip":          "Precipitation (mm)",
+                "snow":            "Snow (mm)",
+                "is_holiday":      "Holiday",
+                "snow_lag1":       "Snow Lag 1 (mm)",
+                "day_of_week":     "Day of Week",
+                "month":           "Month",
+                "is_weekend":      "Weekend",
+                "ridership_lag1":  "Ridership Lag 1 (M)",
+                "ridership_lag2":  "Ridership Lag 2 (M)",
+                "ridership_lag3":  "Ridership Lag 3 (M)",
+                "ridership_lag7":  "Ridership Lag 7 (M)",
+                "ridership_lag14": "Ridership Lag 14 (M)",
+                "ridership_14d_avg": "14-Day Avg Ridership (M)",
+                "ridership_7d_std":  "7-Day Std Ridership (M)",
+                "precip_lag1":     "Precipitation Lag 1 (mm)",
+                "temp_lag1":       "Temperature Lag 1 (°C)",
+            }
+            X_labeled = X.rename(columns=_FEATURE_LABELS)
 
-        shap_path = REPORTS_DIR / "xgboost_shap_summary.png"
-        with plt.style.context("dark_background"):
-            fig_shap, _ = plt.subplots(figsize=(10, 7))
-            fig_shap.patch.set_facecolor("#0e1117")
-            shap.summary_plot(shap_values, X_test_labeled, show=False)
-            fig = plt.gcf()
-            fig.set_facecolor("#0e1117")
-            for ax in fig.get_axes():
-                ax.set_facecolor("#0e1117")
-                ax.tick_params(colors="white", labelcolor="white")
-                ax.xaxis.label.set_color("white")
-                ax.yaxis.label.set_color("white")
-                for text in ax.get_xticklabels() + ax.get_yticklabels():
+            shap_path = REPORTS_DIR / "xgboost_shap_summary.png"
+            with plt.style.context("dark_background"):
+                fig_shap, _ = plt.subplots(figsize=(10, 7))
+                fig_shap.patch.set_facecolor("#0e1117")
+                shap.summary_plot(shap_values, X_labeled, show=False)
+                fig = plt.gcf()
+                fig.set_facecolor("#0e1117")
+                for ax in fig.get_axes():
+                    ax.set_facecolor("#0e1117")
+                    ax.tick_params(colors="white", labelcolor="white")
+                    ax.xaxis.label.set_color("white")
+                    ax.yaxis.label.set_color("white")
+                    for text in ax.get_xticklabels() + ax.get_yticklabels():
+                        text.set_color("white")
+                    for spine in ax.spines.values():
+                        spine.set_edgecolor("white")
+                for text in fig.findobj(plt.Text):
                     text.set_color("white")
-                for spine in ax.spines.values():
-                    spine.set_edgecolor("white")
-            for text in fig.findobj(plt.Text):
-                text.set_color("white")
-            fig_shap.savefig(shap_path, dpi=150, bbox_inches="tight", facecolor="#0e1117")
-            plt.close(fig_shap)
-        mlflow.log_artifact(str(shap_path))
+                fig_shap.savefig(shap_path, dpi=150, bbox_inches="tight", facecolor="#0e1117")
+                plt.close(fig_shap)
+            mlflow.log_artifact(str(shap_path))
+        except Exception as e:
+            logger.warning(f"SHAP computation failed, skipping SHAP artifact: {e}")
 
         mlflow.xgboost.log_model(
             final_model, "xgboost_model",

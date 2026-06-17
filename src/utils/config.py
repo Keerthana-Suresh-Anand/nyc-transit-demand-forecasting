@@ -69,6 +69,7 @@ XGBOOST_MODEL_NAME = "xgboost_production"
 # S3 keys — reports
 S3_REPORTS_PREFIX = "reports/"
 S3_SHAP_KEY = "reports/xgboost_shap_summary.png"
+S3_SARIMAX_COEF_KEY = "reports/sarimax_coefficients.json"
 
 # Ensemble weights
 # Equal weights: 14-day rolling-origin walk-forward showed SARIMAX and XGBoost

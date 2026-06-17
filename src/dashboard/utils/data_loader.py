@@ -20,6 +20,7 @@ from src.utils.config import (
     S3_LATEST_FORECAST_KEY,
     S3_MTA_WATERMARK,
     S3_PIPELINE_RUNS_PREFIX,
+    S3_SARIMAX_COEF_KEY,
     S3_SHAP_KEY,
     S3_WEATHER_FORECAST_PREFIX,
 )
@@ -112,6 +113,12 @@ def load_drift_report() -> dict | None:
     s3 = _s3()
     keys = _list_keys(s3, S3_DRIFT_REPORT_PREFIX, ".json")
     return _get_json(s3, keys[-1]) if keys else None
+
+
+@st.cache_data(ttl=3600)
+def load_sarimax_coefficients() -> dict | None:
+    """Load SARIMAX exog coefficient JSON from S3 (written each training run)."""
+    return _get_json(_s3(), S3_SARIMAX_COEF_KEY)
 
 
 @st.cache_data(ttl=3600)

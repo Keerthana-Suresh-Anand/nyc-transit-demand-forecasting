@@ -1,3 +1,4 @@
+import json
 import pickle
 import warnings
 from datetime import date
@@ -125,6 +126,27 @@ def run() -> None:
             pickle.dump(scaler, f)
         mlflow.log_artifact(str(scaler_path))
         logger.info("Scaler logged as MLflow artifact")
+
+        # Exog coefficients for the dashboard. Exog were MinMax-scaled before
+        # fitting, so the coefficient magnitudes are directly comparable across
+        # features. p-values flag which effects are statistically significant.
+        coef_records = [
+            {
+                "feature": col,
+                "coefficient": float(final_model.params[col]),
+                "p_value": float(final_model.pvalues[col]),
+            }
+            for col in EXOG_COLS if col in final_model.params.index
+        ]
+        coef_path = REPORTS_DIR / "sarimax_coefficients.json"
+        with open(coef_path, "w") as f:
+            json.dump({
+                "exog_coefficients": coef_records,
+                "note": "Coefficients on MinMax-scaled exogenous features; magnitudes are comparable.",
+                "run_date": str(date.today()),
+            }, f, indent=2)
+        mlflow.log_artifact(str(coef_path))
+        logger.info(f"SARIMAX exog coefficients written: {coef_records}")
 
         mlflow.statsmodels.log_model(
             final_model, "sarimax_model",

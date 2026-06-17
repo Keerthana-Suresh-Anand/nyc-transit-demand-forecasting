@@ -279,13 +279,11 @@ if perf_df is not None and len(perf_df) > 0:
     st.plotly_chart(fig_scatter, use_container_width=True)
 
     if shap_img:
-        _, shap_col, _ = st.columns([1, 2, 1])
-        with shap_col:
-            st.image(
-                shap_img,
-                caption="XGBoost feature importance — ridership momentum (lags) dominates; weather adds signal at the margin",
-                use_container_width=True,
-            )
+        st.image(
+            shap_img,
+            caption="XGBoost feature importance — ridership momentum (lags) dominates; weather adds signal at the margin",
+            width=550,
+        )
 
     m1, m2, m3 = st.columns(3)
     m1.metric("MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")

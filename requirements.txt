@@ -1,4 +1,4 @@
-.
+-e .
 streamlit>=1.32
 plotly>=5.19,<6.0
 boto3>=1.34

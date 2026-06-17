@@ -71,8 +71,11 @@ S3_REPORTS_PREFIX = "reports/"
 S3_SHAP_KEY = "reports/xgboost_shap_summary.png"
 
 # Ensemble weights
-ENSEMBLE_SARIMAX_WEIGHT = 0.6
-ENSEMBLE_XGB_WEIGHT = 0.4
+# Equal weights: 14-day rolling-origin walk-forward showed SARIMAX and XGBoost
+# are statistically indistinguishable (bootstrapped 95% CIs on the MAE
+# differences all span zero), so neither earns a heavier weight.
+ENSEMBLE_SARIMAX_WEIGHT = 0.5
+ENSEMBLE_XGB_WEIGHT = 0.5
 
 # Training baseline written by evaluate_models, read by monitoring
 S3_TRAINING_BASELINE_KEY = "monitoring/training_baseline.json"

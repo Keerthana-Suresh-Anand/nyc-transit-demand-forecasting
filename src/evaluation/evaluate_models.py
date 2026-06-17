@@ -182,6 +182,57 @@ def _evaluate_and_gate(
     return new_mae, new_rmse, new_mape, new_bias, new_pred, new_actual
 
 
+def evaluate_baselines() -> dict:
+    """Naive benchmarks on the same holdout, for a 'compared to what?' reference.
+
+    seasonal_naive_m7 forecasts each day as the value 7 days earlier (same
+    weekday last week); persistence forecasts each day as the previous day.
+    For daily ridership with strong weekly seasonality, seasonal-naive is the
+    standard hard-to-beat benchmark — the models must beat it to justify their
+    complexity.
+    """
+    df = pd.read_parquet(GOLD_SARIMA_LOCAL_PATH)
+    df.index = pd.to_datetime(df.index)
+    df = df.asfreq("D")
+    y = df["daily_ridership"] / 1_000_000
+
+    test_idx = y.iloc[-TEST_DAYS:].index
+    y_test = y.loc[test_idx]
+
+    results: dict = {}
+    for name, shifted in (("seasonal_naive_m7", y.shift(7)), ("persistence", y.shift(1))):
+        pred = shifted.loc[test_idx]
+        mask = pred.notna() & y_test.notna()
+        if int(mask.sum()) == 0:
+            continue
+        results[name] = {
+            "mae": float(mean_absolute_error(y_test[mask], pred[mask])),
+            "mape_pct": float(mean_absolute_percentage_error(y_test[mask], pred[mask]) * 100),
+            "n_evaluated": int(mask.sum()),
+        }
+    return results
+
+
+def grid_search_weight(
+    sarimax_pred: np.ndarray, xgb_pred: np.ndarray, y_actual: np.ndarray, step: float = 0.05
+) -> tuple[float, float, list[dict]]:
+    """Sweep the SARIMAX ensemble weight over [0, 1] and return the MAE-minimizing
+    weight, its MAE, and the full curve. Reported for ratification — not applied
+    automatically, since tuning the shipped weight on a short holdout each run
+    would overfit and make the production weight unstable month to month.
+    """
+    weights = np.round(np.arange(0.0, 1.0 + step / 2, step), 2)
+    curve: list[dict] = []
+    best_w, best_mae = ENSEMBLE_SARIMAX_WEIGHT, float("inf")
+    for w in weights:
+        ens = w * sarimax_pred + (1.0 - w) * xgb_pred
+        mae = float(np.mean(np.abs(ens - y_actual)))
+        curve.append({"sarimax_weight": float(w), "ensemble_mae": mae})
+        if mae < best_mae:
+            best_mae, best_w = mae, float(w)
+    return best_w, best_mae, curve
+
+
 def run() -> str:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
@@ -201,17 +252,50 @@ def run() -> str:
     logger.info(f"Champion model family: {winner} (MAE {min(sarimax_mae, xgb_mae):.4f}M)")
 
     if sarimax_pred.size > 0 and xgb_pred.size > 0:
+        # Ensemble at the shipped (config) weight — this is what production uses.
         ensemble_pred = ENSEMBLE_SARIMAX_WEIGHT * sarimax_pred + ENSEMBLE_XGB_WEIGHT * xgb_pred
         ensemble_mae = float(np.mean(np.abs(ensemble_pred - y_actual)))
-        logger.info(f"Ensemble holdout MAE: {ensemble_mae:.4f}M")
+
+        # Data-driven weight recommendation (reported, not auto-applied).
+        best_w, best_w_mae, weight_curve = grid_search_weight(sarimax_pred, xgb_pred, y_actual)
+
+        # Naive baselines for context.
+        baselines = evaluate_baselines()
+        sn_mae = baselines.get("seasonal_naive_m7", {}).get("mae", float("nan"))
+        pers_mae = baselines.get("persistence", {}).get("mae", float("nan"))
+
+        logger.info(
+            "Holdout MAE (M) — "
+            f"seasonal_naive: {sn_mae:.4f} | persistence: {pers_mae:.4f} | "
+            f"sarimax: {sarimax_mae:.4f} | xgboost: {xgb_mae:.4f} | "
+            f"ensemble@{ENSEMBLE_SARIMAX_WEIGHT:.2f}: {ensemble_mae:.4f} | "
+            f"ensemble@best({best_w:.2f}): {best_w_mae:.4f}"
+        )
+        if ensemble_mae >= sn_mae:
+            logger.warning(
+                f"Ensemble (MAE {ensemble_mae:.4f}M) does NOT beat seasonal-naive "
+                f"(MAE {sn_mae:.4f}M) on this holdout — investigate before trusting forecasts."
+            )
+        if abs(best_w - ENSEMBLE_SARIMAX_WEIGHT) > 1e-9 and (ensemble_mae - best_w_mae) > 0.001:
+            logger.warning(
+                f"Config SARIMAX weight {ENSEMBLE_SARIMAX_WEIGHT:.2f} is sub-optimal on this "
+                f"holdout; best={best_w:.2f} (MAE {best_w_mae:.4f}M vs {ensemble_mae:.4f}M). "
+                f"Consider updating ENSEMBLE_SARIMAX_WEIGHT in config if this persists."
+            )
+
         s3 = get_s3_client()
         write_s3_json(s3, {
             "ensemble_mae": ensemble_mae,
             "sarimax_mae": sarimax_mae,
             "xgboost_mae": xgb_mae,
             "champion_model": winner,
+            "config_sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
+            "recommended_sarimax_weight": best_w,
+            "recommended_weight_mae": best_w_mae,
+            "weight_curve": weight_curve,
+            "baselines": baselines,
         }, S3_TRAINING_BASELINE_KEY)
-        logger.info("Training baseline written to S3")
+        logger.info("Training baseline + weight analysis written to S3")
 
     return winner
 

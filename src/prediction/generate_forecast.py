@@ -5,12 +5,14 @@ Writes forecast to S3 as both a timestamped parquet and latest_forecast.json.
 import pickle
 import warnings
 from datetime import date, timedelta
+from pathlib import Path
 
 import mlflow
 import mlflow.statsmodels
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
+import yaml
 from mlflow import MlflowClient
 from sklearn.preprocessing import MinMaxScaler
 
@@ -23,6 +25,7 @@ from src.utils.config import (
     S3_FORECAST_PREFIX,
     S3_LATEST_FORECAST_KEY,
     S3_WEATHER_FORECAST_PREFIX,
+    SARIMAX_EXOG_COLS,
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
@@ -39,7 +42,6 @@ from src.utils.s3_helpers import (
 warnings.filterwarnings("ignore")
 logger = get_logger(__name__)
 
-SARIMAX_EXOG_COLS = ["temp", "precip", "snow_lag1", "is_holiday"]
 ML_FEATURE_COLS = None  # resolved at runtime from training data
 FORECAST_DAYS = 14
 
@@ -63,6 +65,38 @@ def _load_production_scaler() -> MinMaxScaler | None:
             return pickle.load(f)
     except Exception as e:
         logger.warning(f"Could not load Production scaler from MLflow: {e}")
+        return None
+
+
+def _production_versions() -> dict:
+    """Resolve the Production version + run_id of each model so the forecast can be
+    traced back to the exact registered artifacts that produced it.
+    """
+    client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
+    out: dict = {}
+    for label, name in (("sarimax", SARIMAX_MODEL_NAME), ("xgboost", XGBOOST_MODEL_NAME)):
+        try:
+            prod = [v for v in client.search_model_versions(f"name='{name}'")
+                    if v.current_stage == "Production"]
+            if prod:
+                v = max(prod, key=lambda x: int(x.version))
+                out[label] = {"version": int(v.version), "run_id": v.run_id}
+            else:
+                out[label] = None
+        except Exception as e:
+            logger.warning(f"Could not resolve Production version for {name}: {e}")
+            out[label] = None
+    return out
+
+
+def _gold_dvc_md5() -> str | None:
+    """md5 of the gold SARIMA parquet from its DVC pointer, tying the forecast to a
+    data version. Best-effort — returns None if the pointer isn't present.
+    """
+    try:
+        with open(Path("data/gold/mta_sarima.parquet.dvc")) as f:
+            return yaml.safe_load(f)["outs"][0]["md5"]
+    except Exception:
         return None
 
 
@@ -205,6 +239,9 @@ def run() -> None:
         "forecast_horizon_days": FORECAST_DAYS,
         "sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
         "xgboost_weight": ENSEMBLE_XGB_WEIGHT,
+        "model_versions": _production_versions(),
+        "gold_sarima_dvc_md5": _gold_dvc_md5(),
+        "last_actual_date": str(df_sarima.index.max().date()),
         "forecasts": df_forecast.to_dict(orient="records"),
     }
     write_s3_json(s3, forecast_json, S3_LATEST_FORECAST_KEY)

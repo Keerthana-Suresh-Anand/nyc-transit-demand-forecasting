@@ -1,5 +1,4 @@
 import io
-import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -13,12 +12,18 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+class MissingCredentialsError(RuntimeError):
+    """Raised when a required credential/config value (AWS or an external API key)
+    is absent from the environment."""
+
+
 def get_s3_client():
     missing = [k for k, v in {"AWS_ACCESS_KEY": AWS_KEY, "AWS_SECRET_KEY": AWS_SECRET,
                                "AWS_REGION": AWS_REGION, "AWS_BUCKET_NAME": BUCKET}.items() if not v]
     if missing:
-        logger.error(f"Missing environment variables: {', '.join(missing)}")
-        sys.exit(1)
+        # Raise rather than sys.exit: a library helper shouldn't kill the process —
+        # the pipeline entry points catch this and exit, and it stays testable.
+        raise MissingCredentialsError(f"Missing environment variables: {', '.join(missing)}")
     return boto3.client("s3", aws_access_key_id=AWS_KEY, aws_secret_access_key=AWS_SECRET,
                         region_name=AWS_REGION)
 

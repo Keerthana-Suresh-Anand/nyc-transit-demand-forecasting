@@ -10,6 +10,7 @@ from moto import mock_aws
 
 from src.ingestion.ingest_mta import build_soql_query, fetch_mta_data, run
 from src.utils.config import S3_MTA_PREFIX, S3_MTA_WATERMARK
+from src.utils.s3_helpers import MissingCredentialsError
 
 BUCKET = "test-bucket"
 
@@ -84,9 +85,9 @@ class TestFetchMtaData:
             with pytest.raises(Exception):
                 fetch_mta_data(date(2025, 1, 1), date(2025, 1, 31))
 
-    def test_exits_when_app_token_missing(self, monkeypatch):
+    def test_raises_when_app_token_missing(self, monkeypatch):
         monkeypatch.setattr("src.ingestion.ingest_mta.NY_APP_TOKEN", "")
-        with pytest.raises(SystemExit):
+        with pytest.raises(MissingCredentialsError):
             fetch_mta_data(date(2025, 1, 1), date(2025, 1, 31))
 
 

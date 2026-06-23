@@ -1,5 +1,4 @@
 import io
-import sys
 from datetime import date, timedelta
 
 import pandas as pd
@@ -17,15 +16,20 @@ from src.utils.config import (
     WEATHER_LOCATION,
 )
 from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, read_watermark, write_s3_csv, write_watermark
+from src.utils.s3_helpers import (
+    MissingCredentialsError,
+    get_s3_client,
+    read_watermark,
+    write_s3_csv,
+    write_watermark,
+)
 
 logger = get_logger(__name__)
 
 
 def fetch_weather(start_date: date, end_date: date) -> pd.DataFrame:
     if not WEATHER_API_KEY:
-        logger.error("WEATHER_API_KEY not set")
-        sys.exit(1)
+        raise MissingCredentialsError("WEATHER_API_KEY not set")
 
     url = (
         f"{WEATHER_BASE_URL}{WEATHER_LOCATION}/{start_date}/{end_date}"
@@ -47,8 +51,7 @@ def run() -> None:
 
     mta_last_date = read_watermark(s3, S3_MTA_WATERMARK)
     if not mta_last_date:
-        logger.error("MTA watermark not found. Run MTA ingestion first.")
-        sys.exit(1)
+        raise RuntimeError("MTA watermark not found — run MTA ingestion first")
 
     weather_last_date = read_watermark(s3, S3_WEATHER_WATERMARK)
     start_date = (weather_last_date + timedelta(days=1)) if weather_last_date else date.fromisoformat(MTA_START_DATE)

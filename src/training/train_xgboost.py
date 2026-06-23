@@ -13,15 +13,15 @@ from src.utils.config import (
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
     REPORTS_DIR,
+    TEST_DAYS,
     XGBOOST_MODEL_NAME,
 )
-from src.utils.features import cast_categoricals
+from src.utils.features import cast_categoricals, iterative_xgb_predict
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 TARGET_COL = "daily_ridership"
-TEST_DAYS = 30
 CV_SPLITS = 5
 
 XGB_PARAMS = {
@@ -84,15 +84,26 @@ def run() -> None:
         mlflow.log_metrics({f"cv_fold_{i+1}_mae": m for i, m in enumerate(cv_maes)})
         mlflow.log_metric("cv_mean_mae", np.mean(cv_maes))
 
-        logger.info("Training final XGBoost model on full training set")
-        final_model = xgb.XGBRegressor(**XGB_PARAMS)
-        final_model.fit(
-            X_train, y_train,
-            eval_set=[(X_test, y_test)],
+        # Early-stop on a validation slice carved from the TRAIN tail so the
+        # reporting holdout (X_test) stays untouched. The tree count must not be
+        # chosen by watching the same window the holdout MAE is computed on, since
+        # the champion gate now trusts that logged MAE for promotion decisions.
+        X_inner, X_val = X_train.iloc[:-TEST_DAYS], X_train.iloc[-TEST_DAYS:]
+        y_inner, y_val = y_train.iloc[:-TEST_DAYS], y_train.iloc[-TEST_DAYS:]
+
+        logger.info("Fitting evaluation XGBoost on inner-train split (early-stops on a held-out val slice)")
+        eval_model = xgb.XGBRegressor(**XGB_PARAMS)
+        eval_model.fit(
+            X_inner, y_inner,
+            eval_set=[(X_val, y_val)],
             verbose=False,
         )
 
-        y_pred = final_model.predict(X_test)
+        # Iterative holdout to mirror production 14-day inference: predicted
+        # ridership feeds back into the lag/rolling features rather than a one-shot
+        # predict() that peeks at true lags the model won't have at serve time.
+        test_start_idx = len(df) - TEST_DAYS
+        y_pred = iterative_xgb_predict(eval_model, df, test_start_idx, TEST_DAYS)
         mae = mean_absolute_error(y_test, y_pred)
         rmse = np.sqrt(mean_squared_error(y_test, y_pred))
         mape = mean_absolute_percentage_error(y_test, y_pred)
@@ -110,6 +121,31 @@ def run() -> None:
         fig.savefig(plot_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         mlflow.log_artifact(str(plot_path))
+
+        # Per-day holdout predictions — the champion gate reads this to run the
+        # ensemble weight analysis on a common, out-of-sample window for both
+        # families (it cannot re-forecast the full-data production model honestly).
+        holdout_df = pd.DataFrame({
+            "date": y_test.index.strftime("%Y-%m-%d"),
+            "y_true": y_test.to_numpy(),
+            "y_pred": np.asarray(y_pred),
+        })
+        holdout_path = REPORTS_DIR / "holdout_predictions.json"
+        holdout_df.to_json(holdout_path, orient="records")
+        mlflow.log_artifact(str(holdout_path))
+
+        # ── Production model: refit on ALL data (train + holdout) so the shipped
+        #    model uses every observation up to the latest date. Early stopping
+        #    chose the tree count against the holdout; the production fit reuses that
+        #    fixed n_estimators on the full set (no holdout remains to early-stop on),
+        #    which also stops the shipped model from being tuned on its own metric set.
+        best_n = (eval_model.best_iteration or 0) + 1
+        prod_params = {k: v for k, v in XGB_PARAMS.items() if k != "early_stopping_rounds"}
+        prod_params["n_estimators"] = best_n
+        mlflow.log_metric("best_n_estimators", best_n)
+        logger.info(f"Refitting production XGBoost on full dataset (n_estimators={best_n})")
+        final_model = xgb.XGBRegressor(**prod_params)
+        final_model.fit(X, y, verbose=False)
 
         # SHAP runs before model registration below. Native categorical features
         # can trip up TreeExplainer on some shap/xgboost versions, so a failure

@@ -9,6 +9,7 @@ from moto import mock_aws
 
 from src.ingestion.ingest_weather import fetch_weather, run
 from src.utils.config import S3_MTA_WATERMARK, S3_WEATHER_FORECAST_PREFIX, S3_WEATHER_WATERMARK
+from src.utils.s3_helpers import MissingCredentialsError
 
 BUCKET = "test-bucket"
 
@@ -54,16 +55,16 @@ class TestFetchWeather:
             with pytest.raises(Exception):
                 fetch_weather(date(2025, 1, 1), date(2025, 1, 5))
 
-    def test_exits_when_api_key_missing(self, monkeypatch):
+    def test_raises_when_api_key_missing(self, monkeypatch):
         monkeypatch.setattr("src.ingestion.ingest_weather.WEATHER_API_KEY", "")
-        with pytest.raises(SystemExit):
+        with pytest.raises(MissingCredentialsError):
             fetch_weather(date(2025, 1, 1), date(2025, 1, 5))
 
 
 class TestIngestWeatherRun:
-    def test_exits_when_mta_watermark_missing(self, s3, monkeypatch):
+    def test_raises_when_mta_watermark_missing(self, s3, monkeypatch):
         monkeypatch.setattr("src.ingestion.ingest_weather.get_s3_client", lambda: s3)
-        with pytest.raises(SystemExit):
+        with pytest.raises(RuntimeError):
             run()
 
     def test_always_writes_forecast_csv(self, s3, monkeypatch):

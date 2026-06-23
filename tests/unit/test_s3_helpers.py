@@ -6,8 +6,11 @@ import pandas as pd
 import pytest
 from moto import mock_aws
 
+import src.utils.s3_helpers as s3_helpers
 from src.utils.s3_helpers import (
+    MissingCredentialsError,
     download_s3_file,
+    get_s3_client,
     list_s3_files,
     read_s3_csv,
     read_s3_json,
@@ -35,6 +38,14 @@ def s3():
         )
         client.create_bucket(Bucket=BUCKET)
         yield client
+
+
+class TestGetS3Client:
+    def test_raises_when_credentials_missing(self, monkeypatch):
+        for name in ("AWS_KEY", "AWS_SECRET", "AWS_REGION", "BUCKET"):
+            monkeypatch.setattr(s3_helpers, name, None)
+        with pytest.raises(MissingCredentialsError):
+            get_s3_client()
 
 
 class TestReadWatermark:

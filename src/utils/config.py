@@ -78,6 +78,17 @@ S3_SARIMAX_COEF_KEY = "reports/sarimax_coefficients.json"
 ENSEMBLE_SARIMAX_WEIGHT = 0.5
 ENSEMBLE_XGB_WEIGHT = 0.5
 
+# Exogenous regressors for SARIMAX — single source of truth. Used by the trainer
+# (fit + scaler) and the prediction pipeline (building future exog). Order matters:
+# the persisted scaler is fit on these columns in this order.
+SARIMAX_EXOG_COLS = ["temp", "precip", "snow_lag1", "is_holiday"]
+
+# Holdout size (days) for model evaluation. Single source of truth shared by the
+# training scripts (which compute + log the honest out-of-sample metrics) and the
+# champion gate (which reads those logged metrics). Keep these in lockstep — a
+# mismatch silently overlaps the evaluation window with the training data.
+TEST_DAYS = 30
+
 # Training baseline written by evaluate_models, read by monitoring
 S3_TRAINING_BASELINE_KEY = "monitoring/training_baseline.json"
 
@@ -88,3 +99,17 @@ S3_MLFLOW_DB_KEY = "mlflow/mlflow.db"
 PSI_MODERATE_THRESHOLD = 0.1
 PSI_CRITICAL_THRESHOLD = 0.25
 MAE_RETRAIN_MULTIPLIER = 1.5  # retrain if rolling MAE > 1.5x training MAE
+
+# Retrain circuit breaker: never trigger a retrain more than once within this many
+# days, even if MAE stays degraded. Without this, persistent degradation (or a
+# training job that keeps failing before it clears the flag) would re-trigger
+# training on every daily monitoring run. Trigger dates are kept in S3.
+RETRAIN_COOLDOWN_DAYS = 7
+S3_RETRAIN_HISTORY_KEY = "monitoring/retrain_history.json"
+
+# SARIMAX order persistence. auto_arima re-searched every training cycle makes the
+# production model architecture (and its coefficient panel) non-comparable month
+# to month. The discovered order is cached in S3 and reused until it is older than
+# SARIMAX_RESEARCH_DAYS, at which point the stepwise search runs again and re-pins.
+S3_SARIMAX_ORDER_KEY = "monitoring/sarimax_order.json"
+SARIMAX_RESEARCH_DAYS = 90

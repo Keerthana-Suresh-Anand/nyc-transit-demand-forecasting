@@ -1,5 +1,4 @@
 import io
-import sys
 from datetime import date, timedelta
 from urllib.parse import quote
 
@@ -18,6 +17,7 @@ from src.utils.config import (
 )
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
+    MissingCredentialsError,
     get_s3_client,
     read_watermark,
     write_s3_csv,
@@ -52,8 +52,7 @@ def build_soql_query(start_date: date, end_date: date, limit: int, offset: int) 
 def fetch_mta_data(start_date: date, end_date: date) -> pd.DataFrame:
     """Fetch MTA data, splitting at the historical/current dataset boundary if needed."""
     if not NY_APP_TOKEN:
-        logger.error("NY_APP_TOKEN not set")
-        sys.exit(1)
+        raise MissingCredentialsError("NY_APP_TOKEN not set")
 
     # Split fetch window at the dataset boundary if it spans both
     segments = []

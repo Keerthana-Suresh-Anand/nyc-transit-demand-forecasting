@@ -110,7 +110,7 @@ fig.add_trace(go.Scatter(
     fillcolor="rgba(180,180,180,0.15)",
     line=dict(color="rgba(0,0,0,0)"),
     hoverinfo="skip",
-    name="95% CI",
+    name="SARIMAX 95% CI",
 ))
 
 fig.add_trace(go.Scatter(

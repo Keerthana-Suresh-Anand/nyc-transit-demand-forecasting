@@ -21,13 +21,21 @@ from src.utils.config import (
     MAE_RETRAIN_MULTIPLIER,
     PSI_CRITICAL_THRESHOLD,
     PSI_MODERATE_THRESHOLD,
+    RETRAIN_COOLDOWN_DAYS,
     S3_DRIFT_REPORT_PREFIX,
     S3_FORECAST_PREFIX,
     S3_GOLD_SARIMA_KEY,
     S3_RETRAIN_FLAG_KEY,
+    S3_RETRAIN_HISTORY_KEY,
 )
 from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, list_s3_files, write_s3_json
+from src.utils.s3_helpers import (
+    delete_s3_key,
+    get_s3_client,
+    list_s3_files,
+    read_s3_json,
+    write_s3_json,
+)
 
 logger = get_logger(__name__)
 
@@ -95,6 +103,30 @@ def _compute_forecast_metrics(
     }
 
 
+def _last_retrain_trigger(s3) -> date | None:
+    """Most recent retrain trigger date from the S3 history, or None."""
+    try:
+        hist = read_s3_json(s3, S3_RETRAIN_HISTORY_KEY)
+        triggers = [date.fromisoformat(d) for d in hist.get("triggers", [])]
+        return max(triggers) if triggers else None
+    except Exception:
+        return None
+
+
+def _record_retrain_trigger(s3, today: date) -> None:
+    """Append today's trigger to the S3 history (keeps the last 50)."""
+    try:
+        hist = read_s3_json(s3, S3_RETRAIN_HISTORY_KEY)
+        triggers = list(hist.get("triggers", []))
+    except Exception:
+        triggers = []
+    triggers.append(str(today))
+    try:
+        write_s3_json(s3, {"triggers": triggers[-50:]}, S3_RETRAIN_HISTORY_KEY)
+    except Exception as e:
+        logger.warning(f"Could not record retrain trigger: {e}")
+
+
 def _compute_psi_scores(gold: pd.DataFrame) -> dict[str, float]:
     if len(gold) < REFERENCE_DAYS + RECENT_DAYS:
         logger.warning("Not enough data for PSI — skipping")
@@ -152,6 +184,21 @@ def run(training_mae: float | None = None) -> dict:
 
     retrain_recommended = len(retrain_reasons) > 0
 
+    # ── Circuit breaker ───────────────────────────────────────────────────
+    # Bound retrains to at most one per cooldown window. Without this, persistent
+    # MAE degradation (or a training job that keeps failing before it clears the
+    # flag) would re-dispatch training on every daily monitoring run.
+    cooldown_active = False
+    if retrain_recommended:
+        last_trigger = _last_retrain_trigger(s3)
+        if last_trigger is not None and (today - last_trigger).days < RETRAIN_COOLDOWN_DAYS:
+            cooldown_active = True
+            logger.warning(
+                f"Retrain suppressed — last trigger {last_trigger} is within the "
+                f"{RETRAIN_COOLDOWN_DAYS}-day cooldown"
+            )
+    retrain_triggered = retrain_recommended and not cooldown_active
+
     # ── Build report ──────────────────────────────────────────────────────
     report = {
         "report_date": str(today),
@@ -159,6 +206,8 @@ def run(training_mae: float | None = None) -> dict:
         "max_psi": max_psi,
         "psi_status": psi_status,
         "retrain_recommended": retrain_recommended,
+        "retrain_triggered": retrain_triggered,
+        "cooldown_active": cooldown_active,
         "retrain_reasons": retrain_reasons,
         **fc_metrics,
     }
@@ -169,7 +218,7 @@ def run(training_mae: float | None = None) -> dict:
     write_s3_json(s3, report, report_key)
     logger.info(f"Drift report written to {report_key}")
 
-    if retrain_recommended:
+    if retrain_triggered:
         flag = {
             "trigger_date": str(today),
             "reasons": retrain_reasons,
@@ -177,7 +226,13 @@ def run(training_mae: float | None = None) -> dict:
             "rolling_mae_M": rolling_mae,
         }
         write_s3_json(s3, flag, S3_RETRAIN_FLAG_KEY)
+        _record_retrain_trigger(s3, today)
         logger.warning(f"Retrain flag written: {retrain_reasons}")
+    elif cooldown_active:
+        # Enforce the breaker: clear any flag a prior trigger may have left so the
+        # workflow does not re-dispatch training during the cooldown window.
+        delete_s3_key(s3, S3_RETRAIN_FLAG_KEY)
+        logger.info("Retrain flag cleared — cooldown active")
     else:
         logger.info(f"No retrain needed — PSI={max_psi:.3f} ({psi_status}), "
                     f"n_evaluated={fc_metrics.get('n_evaluated', 0)}")

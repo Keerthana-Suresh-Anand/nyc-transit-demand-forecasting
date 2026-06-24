@@ -21,6 +21,28 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Brighten the muted grey sidebar caption text for readability (bold headers
+# stay full-white, so the visual hierarchy is preserved).
+st.markdown(
+    """
+    <style>
+    section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+    section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+    section[data-testid="stSidebar"] .stCaption p {
+        color: rgba(255, 255, 255, 0.85) !important;
+    }
+    /* Pin the SHAP image to the same height as the paired SARIMAX coefficient
+       chart (420px) so the two interpretability panels align. object-fit:contain
+       scales without distortion; the PNG's dark background hides any letterbox. */
+    [data-testid="stImage"] img {
+        height: 420px !important;
+        object-fit: contain;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 _C = {
     "blue":   "#4c9be8",
     "orange": "#f4a261",
@@ -60,6 +82,21 @@ with st.sidebar:
         st.caption(f"{icon} {label} · {run_date}")
 
     st.divider()
+
+    data_through = pipeline_status.get("data_through_date")
+    if data_through:
+        # Data coverage, not a run date: MTA publishes with a lag, so this trails
+        # the ingestion run date above by ~a week.
+        st.markdown("**Data Coverage**")
+        caption = f"📅 Through · {data_through}"
+        try:
+            lag_days = (date.today() - date.fromisoformat(data_through)).days
+            caption += f" · {lag_days}d behind"
+        except ValueError:
+            pass
+        st.caption(caption)
+        st.divider()
+
     if forecast_data:
         sarimax_w = forecast_data.get("sarimax_weight", 0.5)
         xgb_w = forecast_data.get("xgboost_weight", 0.5)

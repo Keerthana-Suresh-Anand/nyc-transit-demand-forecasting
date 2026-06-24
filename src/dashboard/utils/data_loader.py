@@ -208,11 +208,15 @@ def load_pipeline_status() -> dict:
         "ingestion_status": None,
         "training_status": None,
         "prediction_status": None,
+        # Data freshness — the latest MTA date actually ingested. Distinct from
+        # last_ingestion_date (when the pipeline ran): MTA publishes with a lag,
+        # so data coverage trails the run date by ~a week or more.
+        "data_through_date": None,
     }
 
     try:
         obj = s3.get_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK)
-        status["last_ingestion_date"] = obj["Body"].read().decode().strip()
+        status["data_through_date"] = obj["Body"].read().decode().strip()
     except Exception as e:
         logger.warning("Failed to read MTA watermark: %s", e)
 
@@ -231,6 +235,7 @@ def load_pipeline_status() -> dict:
             status["last_forecast_date"] = run.get("run_date")
             status["prediction_status"] = run.get("status")
         elif pipeline_type == "ingestion":
+            status["last_ingestion_date"] = run.get("run_date")
             status["ingestion_status"] = run.get("status")
 
     if not status["last_forecast_date"]:

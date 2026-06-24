@@ -32,10 +32,11 @@ st.markdown(
         color: rgba(255, 255, 255, 0.85) !important;
     }
     /* Pin the SHAP image to the same height as the paired SARIMAX coefficient
-       chart (420px) so the two interpretability panels align. object-fit:contain
-       scales without distortion; the PNG's dark background hides any letterbox. */
+       chart (460px) so the two interpretability panels align. object-fit:contain
+       scales without distortion; the PNG's dark background hides any letterbox.
+       The SHAP column is widened below so the image fills more of this box. */
     [data-testid="stImage"] img {
-        height: 420px !important;
+        height: 460px !important;
         object-fit: contain;
     }
     </style>
@@ -323,7 +324,9 @@ if perf_df is not None and len(perf_df) > 0:
 
     # ── Interpretability for both ensemble components (50% each) ──────────────
     st.markdown("**How each model reasons** — interpretability for both halves of the ensemble")
-    shap_col, coef_col = st.columns([1, 1])
+    # SHAP gets a wider column: it's a dense beeswarm that needs more horizontal
+    # room to stay legible than the SARIMAX bar chart.
+    shap_col, coef_col = st.columns([1.3, 1])
 
     with shap_col:
         if shap_img:
@@ -354,7 +357,7 @@ if perf_df is not None and len(perf_df) > 0:
                 line=dict(color="rgba(255,255,255,0.3)"),
             )
             fig_coef.update_layout(
-                height=420,
+                height=460,
                 xaxis_title="Coefficient on scaled input (+ raises / − lowers ridership)",
                 margin=dict(l=10, r=20, t=30, b=50),
             )

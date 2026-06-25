@@ -157,6 +157,18 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
     best_w, best_w_mae, curve = grid_search_weight(s, x, a)
     ens_50 = 0.5 * s + 0.5 * x
 
+    # Bias (mean error, pred − actual): + = systematic over-forecast, − = under.
+    # Invisible to MAE/MAPE but operationally critical for a staffing/planning tool,
+    # and it reveals whether the ensemble cancels the individual models' skew.
+    def _bias(pred):
+        return float(np.mean(np.asarray(pred) - a))
+
+    sn_mae = _mae(a, sn)
+    # Relative MAE vs seasonal-naive (MASE-style; <1 beats naive). Scaled by the
+    # seasonal-naive MAE on these same eval windows, not the in-sample one-step naive.
+    def _rel(mae_val):
+        return float(mae_val / sn_mae) if sn_mae else float("nan")
+
     # Fixed a-priori 50/50 ensemble blocks for significance — not the grid-search
     # best — so the ensemble is not credited for a weight tuned on this same data.
     ens50_blocks = [0.5 * sb + 0.5 * xb for sb, xb in zip(blocks["sarimax"], blocks["xgboost"])]
@@ -190,6 +202,20 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
             "xgboost": _mape(a, x),
             "ensemble_50_50": _mape(a, ens_50),
         },
+        "mase": {
+            "seasonal_naive": 1.0,
+            "persistence": _rel(_mae(a, pe)),
+            "sarimax": _rel(sarimax_mae),
+            "xgboost": _rel(xgb_mae),
+            "ensemble_50_50": _rel(_mae(a, ens_50)),
+        },
+        "bias": {
+            "seasonal_naive": _bias(sn),
+            "persistence": _bias(pe),
+            "sarimax": _bias(s),
+            "xgboost": _bias(x),
+            "ensemble_50_50": _bias(ens_50),
+        },
         "best_weight": best_w,
         "best_weight_mae": best_w_mae,
         "weight_curve": curve,
@@ -210,11 +236,15 @@ def format_report(results: dict) -> str:
         ("XGBoost", "xgboost"),
         ("ensemble 50/50", "ensemble_50_50"),
     ]
+    mase = results.get("mase", {})
+    bias = results.get("bias", {})
     for name, key in labels:
         mae_v = results["mae"][key]
         mape_v = results["mape"].get(key)
-        mape_s = f"   MAPE {mape_v:5.2f}%" if mape_v is not None else ""
-        lines.append(f"  {name:<24} MAE {mae_v:6.4f}{mape_s}")
+        mape_s = f"  MAPE {mape_v:5.2f}%" if mape_v is not None else ""
+        mase_s = f"  MASE {mase[key]:4.2f}" if key in mase else ""
+        bias_s = f"  bias {bias[key]:+6.4f}" if key in bias else ""
+        lines.append(f"  {name:<24} MAE {mae_v:6.4f}{mape_s}{mase_s}{bias_s}")
     bw = results["best_weight"]
     lines.append(f"  ensemble {bw:.2f}/{1 - bw:.2f} (BEST)  MAE {results['best_weight_mae']:6.4f}")
     lines.append("=" * 60)

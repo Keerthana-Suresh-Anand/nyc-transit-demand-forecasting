@@ -22,6 +22,8 @@ from src.utils.config import (
     S3_PIPELINE_RUNS_PREFIX,
     S3_SARIMAX_COEF_KEY,
     S3_SHAP_KEY,
+    S3_TRAINING_BASELINE_KEY,
+    S3_WALKFORWARD_KEY,
     S3_WEATHER_FORECAST_PREFIX,
 )
 
@@ -116,6 +118,24 @@ def load_drift_report() -> dict | None:
 
 
 @st.cache_data(ttl=3600)
+def load_training_baseline() -> dict | None:
+    """Load the training baseline written by evaluate_models — holdout MAEs for the
+    ensemble and each model, the naive baselines (seasonal-naive / persistence), and
+    the ensemble weight curve. This is the 'compared to what?' reference.
+    """
+    return _get_json(_s3(), S3_TRAINING_BASELINE_KEY)
+
+
+@st.cache_data(ttl=3600)
+def load_walkforward() -> dict | None:
+    """Load the multi-origin walk-forward backtest written by the training pipeline —
+    the robust (lower-variance) accuracy estimate + bootstrap significance verdicts.
+    Preferred over the single-holdout training baseline where available.
+    """
+    return _get_json(_s3(), S3_WALKFORWARD_KEY)
+
+
+@st.cache_data(ttl=3600)
 def load_sarimax_coefficients() -> dict | None:
     """Load SARIMAX exog coefficient JSON from S3 (written each training run)."""
     return _get_json(_s3(), S3_SARIMAX_COEF_KEY)
@@ -137,8 +157,9 @@ def load_shap_image() -> bytes | None:
 def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
     """
     Cross-join the last 8 weekly forecast parquets with actuals from the gold parquet.
-    Returns columns: forecast_run_date, date, ensemble_forecast_M,
-                     sarimax_forecast_M, actual_M, error_M, abs_pct_error, week.
+    Returns columns: forecast_run_date, date, ensemble_forecast_M, sarimax_forecast_M,
+                     actual_M, error_M, abs_pct_error, ci_lower, ci_upper, horizon, week.
+    horizon = days between the forecast run date and the target date (1..14).
     """
     s3 = _s3()
     history = load_history(days=180)
@@ -149,8 +170,13 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
     if not parquet_keys:
         return None
 
-    hist_lookup = (history["daily_ridership"] / 1_000_000).rename("actual_M")
-    hist_lookup.index = hist_lookup.index.normalize()
+    # Actuals as a 2-column frame with an explicit "date" column, so the merge
+    # below is unambiguous (avoids index-name games from set_index/join).
+    hist_df = (history["daily_ridership"] / 1_000_000).rename("actual_M").to_frame()
+    hist_df.index = pd.to_datetime(hist_df.index).normalize()
+    hist_df = hist_df.reset_index()
+    hist_df.columns = ["date", "actual_M"]
+    hist_df["date"] = pd.to_datetime(hist_df["date"]).dt.normalize()
 
     today = date.today()
     chunks = []
@@ -170,18 +196,22 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
         if past.empty:
             continue
 
-        merged = past.set_index("date").join(hist_lookup, how="inner")
+        merged = past.merge(hist_df, on="date", how="inner")
         if merged.empty:
             continue
 
         merged["forecast_run_date"] = run_date_str
         merged["error_M"] = merged["ensemble_forecast_M"] - merged["actual_M"]
         merged["abs_pct_error"] = merged["error_M"].abs() / merged["actual_M"] * 100
+        for col in ("ci_lower", "ci_upper"):  # older parquets may predate CI columns
+            if col not in merged.columns:
+                merged[col] = pd.NA
         chunks.append(
-            merged.reset_index()[
+            merged[
                 [
                     "forecast_run_date", "date", "ensemble_forecast_M",
                     "sarimax_forecast_M", "actual_M", "error_M", "abs_pct_error",
+                    "ci_lower", "ci_upper",
                 ]
             ]
         )
@@ -193,6 +223,10 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
         .sort_values("date", ascending=False)
         .reset_index(drop=True)
     )
+    # Forecast horizon in days: how far ahead each target date was from its run.
+    df["horizon"] = (
+        pd.to_datetime(df["date"]) - pd.to_datetime(df["forecast_run_date"])
+    ).dt.days
     df["week"] = pd.to_datetime(df["date"]).dt.to_period("W")
     return df
 

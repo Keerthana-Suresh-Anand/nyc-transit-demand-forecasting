@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from src.evaluation import evaluate_models
+from src.evaluation import evaluate_models, walk_forward
 from src.training import train_sarimax, train_xgboost
 from src.transformation import preprocess_ml, preprocess_sarima
 from src.utils.config import (
@@ -18,6 +18,7 @@ from src.utils.config import (
     S3_RETRAIN_FLAG_KEY,
     S3_SARIMAX_COEF_KEY,
     S3_SHAP_KEY,
+    S3_WALKFORWARD_KEY,
 )
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import delete_s3_key, get_s3_client, upload_s3_file, write_s3_json
@@ -60,6 +61,17 @@ def run() -> None:
         coef_path = REPORTS_DIR / "sarimax_coefficients.json"
         if coef_path.exists():
             upload_s3_file(s3, coef_path, S3_SARIMAX_COEF_KEY)
+
+        # Recurring walk-forward backtest (robust, multi-origin) — supplementary to
+        # the single-holdout champion gate above. Wrapped so a backtest failure can
+        # never undo the model registration that already succeeded.
+        try:
+            wf_results = walk_forward.run()
+            write_s3_json(s3, {"run_date": str(date.today()), **wf_results}, S3_WALKFORWARD_KEY)
+            logger.info("Walk-forward evaluation written to S3")
+        except Exception as e:
+            logger.warning(f"Walk-forward evaluation skipped: {e}")
+
         delete_s3_key(s3, S3_RETRAIN_FLAG_KEY)
         logger.info(f"=== Training Pipeline COMPLETE — champion: {champion} ===")
     except Exception as e:

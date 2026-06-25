@@ -92,6 +92,11 @@ TEST_DAYS = 30
 # Training baseline written by evaluate_models, read by monitoring
 S3_TRAINING_BASELINE_KEY = "monitoring/training_baseline.json"
 
+# Walk-forward backtest (multi-origin, robust) written by the training pipeline,
+# read by the dashboard as the headline accuracy. Distinct from the single-holdout
+# training baseline above.
+S3_WALKFORWARD_KEY = "monitoring/walkforward_eval.json"
+
 # MLflow S3 persistence (used by GitHub Actions to sync tracking db and artifacts)
 S3_MLFLOW_DB_KEY = "mlflow/mlflow.db"
 

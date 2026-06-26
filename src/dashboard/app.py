@@ -185,8 +185,9 @@ with st.sidebar:
 st.title("NYC Subway Ridership Forecast", anchor=False)
 st.markdown(
     "**Decision support for service planning** — a rolling **14-day ridership forecast** for NYC "
-    "subway demand, refreshed weekly. A weather-driven **SARIMAX + XGBoost** ensemble, automatically "
-    "retrained and monitored by scheduled **GitHub Actions** pipelines."
+    "subway demand, refreshed weekly. A **SARIMAX + XGBoost** ensemble over ridership history, "
+    "day-of-week, holidays, and weather, automatically retrained and monitored by scheduled "
+    "**GitHub Actions** pipelines."
 )
 
 if forecast_data is None or history is None:

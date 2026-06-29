@@ -358,76 +358,7 @@ st.dataframe(_daily, hide_index=True, use_container_width=True)
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — WEATHER AS A PREDICTIVE SIGNAL
-# ══════════════════════════════════════════════════════════════════════════════
-st.subheader("Weather as a Predictive Signal", anchor=False)
-
-hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
-ridership_M = hist_wx["daily_ridership"] / 1_000_000
-temp_col, precip_col = st.columns([1, 1])
-
-with temp_col:
-    z = np.polyfit(hist_wx["temp"], ridership_M, 1)
-    x_line = np.linspace(hist_wx["temp"].min(), hist_wx["temp"].max(), 100)
-    fig_temp = go.Figure()
-    fig_temp.add_trace(go.Scatter(
-        x=hist_wx["temp"], y=ridership_M,
-        mode="markers", name="Daily",
-        marker=dict(color=_C["blue"], size=5, opacity=0.45),
-        hovertemplate="Temp: %{x:.1f}°C<br>Ridership: %{y:.2f}M<extra></extra>",
-    ))
-    fig_temp.add_trace(go.Scatter(
-        x=x_line, y=np.poly1d(z)(x_line),
-        mode="lines", name="Trend",
-        line=dict(color=_C["orange"], width=2),
-        hoverinfo="skip",
-    ))
-    fig_temp.update_layout(
-        title="Temperature vs Ridership",
-        xaxis_title="Temperature (°C)", yaxis_title="Ridership (M)",
-        height=340, margin=dict(t=40, b=30, l=40, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    _r_t = float(np.corrcoef(hist_wx["temp"], ridership_M)[0, 1])
-    st.plotly_chart(fig_temp, use_container_width=True, config=_PLOTLY_CONFIG)
-    st.caption(f"Pearson r = {_r_t:+.2f} · R² = {_r_t ** 2:.2f}")
-
-with precip_col:
-    z = np.polyfit(hist_wx["precip"], ridership_M, 1)
-    x_line = np.linspace(hist_wx["precip"].min(), hist_wx["precip"].max(), 100)
-    fig_precip = go.Figure()
-    fig_precip.add_trace(go.Scatter(
-        x=hist_wx["precip"], y=ridership_M,
-        mode="markers", name="Daily",
-        marker=dict(color=_C["blue"], size=5, opacity=0.45),
-        hovertemplate="Precip: %{x:.2f} mm<br>Ridership: %{y:.2f}M<extra></extra>",
-    ))
-    fig_precip.add_trace(go.Scatter(
-        x=x_line, y=np.poly1d(z)(x_line),
-        mode="lines", name="Trend",
-        line=dict(color=_C["orange"], width=2),
-        hoverinfo="skip",
-    ))
-    fig_precip.update_layout(
-        title="Precipitation vs Ridership",
-        xaxis_title="Precipitation (mm)", yaxis_title="Ridership (M)",
-        height=340, margin=dict(t=40, b=30, l=40, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    _r_p = float(np.corrcoef(hist_wx["precip"], ridership_M)[0, 1])
-    st.plotly_chart(fig_precip, use_container_width=True, config=_PLOTLY_CONFIG)
-    st.caption(f"Pearson r = {_r_p:+.2f} · R² = {_r_p ** 2:.2f}")
-
-st.caption(
-    "⚠️ Raw daily correlations — confounded by season and day-of-week (e.g. cold months "
-    "are also winter-schedule months). Shown to illustrate the *marginal* weather signal, not "
-    "a causal effect; the models isolate it by controlling for calendar features."
-)
-
-st.divider()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — MODEL ACCURACY
+# SECTION 2 — MODEL ACCURACY
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Model Accuracy", anchor=False)
 if acc and acc["source"] == "walk-forward":
@@ -615,6 +546,77 @@ with coef_col:
                    "Faded bars are not significant (p ≥ 0.05).")
     else:
         st.info("SARIMAX coefficients generate on the next training run.")
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — WEATHER AS A PREDICTIVE SIGNAL
+# ══════════════════════════════════════════════════════════════════════════════
+st.subheader("Does Weather Predict Ridership?", anchor=False)
+st.caption("Weather correlates only weakly with daily ridership — recent ridership and the "
+           "weekly calendar carry most of the predictive signal.")
+
+hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
+ridership_M = hist_wx["daily_ridership"] / 1_000_000
+temp_col, precip_col = st.columns([1, 1])
+
+with temp_col:
+    z = np.polyfit(hist_wx["temp"], ridership_M, 1)
+    x_line = np.linspace(hist_wx["temp"].min(), hist_wx["temp"].max(), 100)
+    fig_temp = go.Figure()
+    fig_temp.add_trace(go.Scatter(
+        x=hist_wx["temp"], y=ridership_M,
+        mode="markers", name="Daily",
+        marker=dict(color=_C["blue"], size=5, opacity=0.45),
+        hovertemplate="Temp: %{x:.1f}°C<br>Ridership: %{y:.2f}M<extra></extra>",
+    ))
+    fig_temp.add_trace(go.Scatter(
+        x=x_line, y=np.poly1d(z)(x_line),
+        mode="lines", name="Trend",
+        line=dict(color=_C["orange"], width=2),
+        hoverinfo="skip",
+    ))
+    fig_temp.update_layout(
+        title="Temperature vs Ridership",
+        xaxis_title="Temperature (°C)", yaxis_title="Ridership (M)",
+        height=340, margin=dict(t=40, b=30, l=40, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    _r_t = float(np.corrcoef(hist_wx["temp"], ridership_M)[0, 1])
+    st.plotly_chart(fig_temp, use_container_width=True, config=_PLOTLY_CONFIG)
+    st.caption(f"Pearson r = {_r_t:+.2f} · R² = {_r_t ** 2:.2f}")
+
+with precip_col:
+    z = np.polyfit(hist_wx["precip"], ridership_M, 1)
+    x_line = np.linspace(hist_wx["precip"].min(), hist_wx["precip"].max(), 100)
+    fig_precip = go.Figure()
+    fig_precip.add_trace(go.Scatter(
+        x=hist_wx["precip"], y=ridership_M,
+        mode="markers", name="Daily",
+        marker=dict(color=_C["blue"], size=5, opacity=0.45),
+        hovertemplate="Precip: %{x:.2f} mm<br>Ridership: %{y:.2f}M<extra></extra>",
+    ))
+    fig_precip.add_trace(go.Scatter(
+        x=x_line, y=np.poly1d(z)(x_line),
+        mode="lines", name="Trend",
+        line=dict(color=_C["orange"], width=2),
+        hoverinfo="skip",
+    ))
+    fig_precip.update_layout(
+        title="Precipitation vs Ridership",
+        xaxis_title="Precipitation (mm)", yaxis_title="Ridership (M)",
+        height=340, margin=dict(t=40, b=30, l=40, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    _r_p = float(np.corrcoef(hist_wx["precip"], ridership_M)[0, 1])
+    st.plotly_chart(fig_precip, use_container_width=True, config=_PLOTLY_CONFIG)
+    st.caption(f"Pearson r = {_r_p:+.2f} · R² = {_r_p ** 2:.2f}")
+
+st.caption(
+    "⚠️ Raw daily correlations — confounded by season and day-of-week (e.g. cold months "
+    "are also winter-schedule months). Shown to illustrate the *marginal* weather signal, not "
+    "a causal effect; the models isolate it by controlling for calendar features."
+)
 
 st.divider()
 

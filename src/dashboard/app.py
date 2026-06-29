@@ -385,7 +385,7 @@ if acc:
             text=[f"{b[1]:.3f}" for b in _bars], textposition="auto",
             hovertemplate="%{y}: MAE %{x:.3f} M<extra></extra>",
         ))
-        _bar_title = "Walk-forward MAE" if acc["source"] == "walk-forward" else "Holdout MAE"
+        _bar_title = "Backtest MAE" if acc["source"] == "walk-forward" else "Holdout MAE"
         fig_bl.update_layout(
             title=f"{_bar_title} — lower is better (models vs naive benchmarks)",
             xaxis_title="MAE (millions of riders)",
@@ -399,6 +399,8 @@ if acc:
     # Bootstrap significance — only the walk-forward has enough origins to resample.
     if acc.get("significance"):
         st.markdown("**Is the difference real?** — block bootstrap, 95% CI on the MAE difference:")
+        st.caption("When two models are statistically indistinguishable (CI spans zero), neither "
+                   "earns a heavier weight — which is why the ensemble weights them 50/50.")
         for _key, _lbl in [
             ("sarimax_vs_xgboost", "SARIMAX vs XGBoost"),
             ("ensemble_vs_sarimax", "Ensemble vs SARIMAX"),
@@ -406,8 +408,8 @@ if acc:
         ]:
             s = acc["significance"].get(_key)
             if s:
-                st.caption(f"• {_lbl}: **{s['verdict']}** — ΔMAE {s['dmae']:+.4f}, "
-                           f"95% CI [{s['ci_lo']:+.4f}, {s['ci_hi']:+.4f}]")
+                st.caption(f"• {_lbl}: **{s['verdict']}** — ΔMAE {s['dmae']:+.3f}, "
+                           f"95% CI [{s['ci_lo']:+.3f}, {s['ci_hi']:+.3f}]")
 
 # ── Per-model metrics (walk-forward only — needs bias/MASE the backtest computes) ──
 if walkforward and walkforward.get("bias"):

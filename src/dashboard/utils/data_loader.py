@@ -29,6 +29,10 @@ from src.utils.config import (
 
 logger = logging.getLogger(__name__)
 
+# Live metrics use only the most recent N weekly forecasts, so they reflect current
+# performance and converge as the latest (fixed) models replace older served forecasts.
+_LIVE_FORECAST_FILES = 8
+
 
 @st.cache_resource
 def _s3():
@@ -180,7 +184,7 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
 
     today = date.today()
     chunks = []
-    for key in parquet_keys:
+    for key in parquet_keys[-_LIVE_FORECAST_FILES:]:  # most recent forecasts only
         parts = key.rsplit("forecast_", 1)
         if len(parts) < 2:
             logger.warning("Unexpected forecast key format: %s", key)

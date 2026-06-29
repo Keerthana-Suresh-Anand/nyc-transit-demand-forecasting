@@ -217,7 +217,7 @@ st.caption(
 )
 
 # ── KPI hero row ────────────────────────────────────────────────────────────────
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3 = st.columns(3)
 
 # Forward 7 days of the 14-day window (the most-forward week), reported as a total
 # with its explicit date range — states a horizon, not a misleading "future" claim,
@@ -252,12 +252,6 @@ if acc and acc["ens_mae"] is not None and acc["seasonal_naive_mae"] is not None:
 else:
     k2.metric("Backtest MAE", "—")
     k3.metric("Beats Seasonal-Naive", "—")
-
-if perf_df is not None and len(perf_df):
-    k4.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%",
-              help="Mean absolute % error of past forecasts, now scored against realized actuals.")
-else:
-    k4.metric("Live MAPE", "—")
 
 st.divider()
 
@@ -524,6 +518,9 @@ if perf_df is not None and len(perf_df) > 0:
               help="Share of actuals that landed inside the SARIMAX 95% band. Near 95% = well-calibrated.")
     c4.metric("Forecasts scored",
               f"{len(perf_df)} pts · {perf_df['forecast_run_date'].nunique()} runs")
+    st.caption("Live = realized error of recently-served forecasts, including model versions "
+               "since improved — expected to run above the backtest and converge toward it as "
+               "current-model forecasts age into actuals.")
 
     col_h, col_s = st.columns(2)
 

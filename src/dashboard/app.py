@@ -433,23 +433,12 @@ if walkforward and walkforward.get("bias"):
     st.caption("MASE < 1 beats seasonal-naive. Bias = mean(forecast − actual): "
                "**+ over-forecasts, − under-forecasts** (systematic skew, which MAE/MAPE hide).")
 
-# ── Live accuracy + calibration ──────────────────────────────────────────────────
+# ── Live accuracy ──────────────────────────────────────────────────────────────────
 if perf_df is not None and len(perf_df) > 0:
-    cov_txt = "—"
-    ci_mask = perf_df["ci_lower"].notna() & perf_df["ci_upper"].notna()
-    if ci_mask.any():
-        within = (
-            (perf_df.loc[ci_mask, "actual_M"] >= perf_df.loc[ci_mask, "ci_lower"])
-            & (perf_df.loc[ci_mask, "actual_M"] <= perf_df.loc[ci_mask, "ci_upper"])
-        )
-        cov_txt = f"{within.mean() * 100:.0f}%"
-
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
     c2.metric("Live MAE", f"{perf_df['error_M'].abs().mean():.3f}M")
-    c3.metric("95% CI coverage", cov_txt,
-              help="Share of actuals that landed inside the SARIMAX 95% band. Near 95% = well-calibrated.")
-    c4.metric("Forecasts scored",
+    c3.metric("Forecasts scored",
               f"{len(perf_df)} pts · {perf_df['forecast_run_date'].nunique()} runs")
     st.caption("Live = realized error of recently-served forecasts, including model versions "
                "since improved — expected to run above the backtest and converge toward it as "

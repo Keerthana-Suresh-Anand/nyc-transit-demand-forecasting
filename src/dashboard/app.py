@@ -589,7 +589,7 @@ with temp_col:
     )
     _r_t = float(np.corrcoef(hist_wx["temp"], ridership_M)[0, 1])
     _show(fig_temp)
-    st.caption(f"Pearson r = {_r_t:+.2f} · R² = {_r_t ** 2:.2f}")
+    st.caption(f"Pearson r = {_r_t:+.2f} — weak linear correlation")
 
 with precip_col:
     z = np.polyfit(hist_wx["precip"], ridership_M, 1)
@@ -615,7 +615,7 @@ with precip_col:
     )
     _r_p = float(np.corrcoef(hist_wx["precip"], ridership_M)[0, 1])
     _show(fig_precip)
-    st.caption(f"Pearson r = {_r_p:+.2f} · R² = {_r_p ** 2:.2f}")
+    st.caption(f"Pearson r = {_r_p:+.2f} — weak linear correlation")
 
 st.caption(
     "⚠️ Raw daily correlations — confounded by season and day-of-week (e.g. cold months "

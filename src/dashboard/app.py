@@ -62,6 +62,15 @@ _C = {
 # independent of the toolbar, so hovering still shows values.
 _PLOTLY_CONFIG = {"displayModeBar": False}
 
+
+def _show(fig):
+    """Render a chart with pan/zoom locked. These are fixed, curated views, so
+    fixedrange disables drag-pan and scroll-zoom (which the hidden modebar can't
+    undo) while leaving hover tooltips intact."""
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
+
 # Medallion data-flow diagram for the "How It Works" section (rendered by graphviz).
 _PIPELINE_DOT = """
 digraph {
@@ -185,8 +194,9 @@ with st.sidebar:
 st.title("NYC Subway Ridership Forecast", anchor=False)
 st.markdown(
     "**Decision support for service planning** — a rolling **14-day ridership forecast** for NYC "
-    "subway demand, refreshed weekly. A weather-driven **SARIMAX + XGBoost** ensemble, automatically "
-    "retrained and monitored by scheduled **GitHub Actions** pipelines."
+    "subway demand, refreshed weekly. A **SARIMAX + XGBoost** ensemble over ridership history, "
+    "day-of-week, holidays, and weather, automatically retrained and monitored by scheduled "
+    "**GitHub Actions** pipelines."
 )
 
 if forecast_data is None or history is None:
@@ -216,7 +226,7 @@ st.caption(
 )
 
 # ── KPI hero row ────────────────────────────────────────────────────────────────
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3 = st.columns(3)
 
 # Forward 7 days of the 14-day window (the most-forward week), reported as a total
 # with its explicit date range — states a horizon, not a misleading "future" claim,
@@ -251,12 +261,6 @@ if acc and acc["ens_mae"] is not None and acc["seasonal_naive_mae"] is not None:
 else:
     k2.metric("Backtest MAE", "—")
     k3.metric("Beats Seasonal-Naive", "—")
-
-if perf_df is not None and len(perf_df):
-    k4.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%",
-              help="Mean absolute % error of past forecasts, now scored against realized actuals.")
-else:
-    k4.metric("Live MAPE", "—")
 
 st.divider()
 
@@ -350,7 +354,7 @@ fig.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     margin=dict(l=50, r=30, t=40, b=50),
 )
-st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
+_show(fig)
 
 # Per-day numbers behind the forward-7 KPI — the concrete deliverable.
 st.markdown(f"**Daily forecast · {fwd7_range}**")
@@ -363,76 +367,7 @@ st.dataframe(_daily, hide_index=True, use_container_width=True)
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — WEATHER AS A PREDICTIVE SIGNAL
-# ══════════════════════════════════════════════════════════════════════════════
-st.subheader("Weather as a Predictive Signal", anchor=False)
-
-hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
-ridership_M = hist_wx["daily_ridership"] / 1_000_000
-temp_col, precip_col = st.columns([1, 1])
-
-with temp_col:
-    z = np.polyfit(hist_wx["temp"], ridership_M, 1)
-    x_line = np.linspace(hist_wx["temp"].min(), hist_wx["temp"].max(), 100)
-    fig_temp = go.Figure()
-    fig_temp.add_trace(go.Scatter(
-        x=hist_wx["temp"], y=ridership_M,
-        mode="markers", name="Daily",
-        marker=dict(color=_C["blue"], size=5, opacity=0.45),
-        hovertemplate="Temp: %{x:.1f}°C<br>Ridership: %{y:.2f}M<extra></extra>",
-    ))
-    fig_temp.add_trace(go.Scatter(
-        x=x_line, y=np.poly1d(z)(x_line),
-        mode="lines", name="Trend",
-        line=dict(color=_C["orange"], width=2),
-        hoverinfo="skip",
-    ))
-    fig_temp.update_layout(
-        title="Temperature vs Ridership",
-        xaxis_title="Temperature (°C)", yaxis_title="Ridership (M)",
-        height=340, margin=dict(t=40, b=30, l=40, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    _r_t = float(np.corrcoef(hist_wx["temp"], ridership_M)[0, 1])
-    st.plotly_chart(fig_temp, use_container_width=True, config=_PLOTLY_CONFIG)
-    st.caption(f"Pearson r = {_r_t:+.2f} · R² = {_r_t ** 2:.2f}")
-
-with precip_col:
-    z = np.polyfit(hist_wx["precip"], ridership_M, 1)
-    x_line = np.linspace(hist_wx["precip"].min(), hist_wx["precip"].max(), 100)
-    fig_precip = go.Figure()
-    fig_precip.add_trace(go.Scatter(
-        x=hist_wx["precip"], y=ridership_M,
-        mode="markers", name="Daily",
-        marker=dict(color=_C["blue"], size=5, opacity=0.45),
-        hovertemplate="Precip: %{x:.2f} mm<br>Ridership: %{y:.2f}M<extra></extra>",
-    ))
-    fig_precip.add_trace(go.Scatter(
-        x=x_line, y=np.poly1d(z)(x_line),
-        mode="lines", name="Trend",
-        line=dict(color=_C["orange"], width=2),
-        hoverinfo="skip",
-    ))
-    fig_precip.update_layout(
-        title="Precipitation vs Ridership",
-        xaxis_title="Precipitation (mm)", yaxis_title="Ridership (M)",
-        height=340, margin=dict(t=40, b=30, l=40, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    _r_p = float(np.corrcoef(hist_wx["precip"], ridership_M)[0, 1])
-    st.plotly_chart(fig_precip, use_container_width=True, config=_PLOTLY_CONFIG)
-    st.caption(f"Pearson r = {_r_p:+.2f} · R² = {_r_p ** 2:.2f}")
-
-st.caption(
-    "⚠️ Raw daily correlations — confounded by season and day-of-week (e.g. cold months "
-    "are also winter-schedule months). Shown to illustrate the *marginal* weather signal, not "
-    "a causal effect; the models isolate it by controlling for calendar features."
-)
-
-st.divider()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — MODEL ACCURACY
+# SECTION 2 — MODEL ACCURACY
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Model Accuracy", anchor=False)
 if acc and acc["source"] == "walk-forward":
@@ -459,20 +394,22 @@ if acc:
             text=[f"{b[1]:.3f}" for b in _bars], textposition="auto",
             hovertemplate="%{y}: MAE %{x:.3f} M<extra></extra>",
         ))
-        _bar_title = "Walk-forward MAE" if acc["source"] == "walk-forward" else "Holdout MAE"
+        _bar_title = "Backtest MAE" if acc["source"] == "walk-forward" else "Holdout MAE"
         fig_bl.update_layout(
             title=f"{_bar_title} — lower is better (models vs naive benchmarks)",
             xaxis_title="MAE (millions of riders)",
             height=300, margin=dict(l=10, r=20, t=40, b=40),
             yaxis=dict(autorange="reversed"),
         )
-        st.plotly_chart(fig_bl, use_container_width=True, config=_PLOTLY_CONFIG)
+        _show(fig_bl)
         st.caption("Seasonal-naive (same weekday last week) is the benchmark to beat — weekly "
                    "seasonality dominates daily ridership, so a model must clear it to earn its complexity.")
 
     # Bootstrap significance — only the walk-forward has enough origins to resample.
     if acc.get("significance"):
         st.markdown("**Is the difference real?** — block bootstrap, 95% CI on the MAE difference:")
+        st.caption("When two models are statistically indistinguishable (CI spans zero), neither "
+                   "earns a heavier weight — which is why the ensemble weights them 50/50.")
         for _key, _lbl in [
             ("sarimax_vs_xgboost", "SARIMAX vs XGBoost"),
             ("ensemble_vs_sarimax", "Ensemble vs SARIMAX"),
@@ -480,8 +417,8 @@ if acc:
         ]:
             s = acc["significance"].get(_key)
             if s:
-                st.caption(f"• {_lbl}: **{s['verdict']}** — ΔMAE {s['dmae']:+.4f}, "
-                           f"95% CI [{s['ci_lo']:+.4f}, {s['ci_hi']:+.4f}]")
+                st.caption(f"• {_lbl}: **{s['verdict']}** — ΔMAE {s['dmae']:+.3f}, "
+                           f"95% CI [{s['ci_lo']:+.3f}, {s['ci_hi']:+.3f}]")
 
 # ── Per-model metrics (walk-forward only — needs bias/MASE the backtest computes) ──
 if walkforward and walkforward.get("bias"):
@@ -500,80 +437,79 @@ if walkforward and walkforward.get("bias"):
                 "MASE": round(_mase_d[_key], 2) if _key in _mase_d else None,
                 "Bias (M)": round(_bias_d[_key], 3) if _key in _bias_d else None,
             })
+    st.divider()
     st.markdown("**Per-model metrics** (walk-forward)")
     st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
     st.caption("MASE < 1 beats seasonal-naive. Bias = mean(forecast − actual): "
                "**+ over-forecasts, − under-forecasts** (systematic skew, which MAE/MAPE hide).")
 
-# ── Live accuracy + calibration ──────────────────────────────────────────────────
-if perf_df is not None and len(perf_df) > 0:
-    cov_txt = "—"
-    ci_mask = perf_df["ci_lower"].notna() & perf_df["ci_upper"].notna()
-    if ci_mask.any():
-        within = (
-            (perf_df.loc[ci_mask, "actual_M"] >= perf_df.loc[ci_mask, "ci_lower"])
-            & (perf_df.loc[ci_mask, "actual_M"] <= perf_df.loc[ci_mask, "ci_upper"])
-        )
-        cov_txt = f"{within.mean() * 100:.0f}%"
+# ── Error by horizon (backtest — averaged over every walk-forward origin) ─────────
+if walkforward and walkforward.get("mae_by_horizon"):
+    _mbh = walkforward["mae_by_horizon"]
+    st.divider()
+    st.markdown("**Error grows with horizon** (walk-forward backtest)")
+    fig_h = go.Figure(go.Scatter(
+        x=list(range(1, len(_mbh) + 1)), y=_mbh,
+        mode="lines+markers", line=dict(color=_C["red"], width=2),
+        hovertemplate="Day %{x}: MAE %{y:.3f} M<extra></extra>",
+    ))
+    fig_h.update_layout(
+        title="Ensemble error by lead time",
+        xaxis_title="Days ahead", yaxis_title="Mean abs error (M)",
+        height=340, margin=dict(l=50, r=20, t=40, b=45),
+    )
+    _show(fig_h)
+    st.caption(
+        f"Mean ensemble error at each 1–14 day lead time, averaged over all "
+        f"{walkforward.get('n_origins', '')} backtest origins. Error compounds with horizon "
+        "as recursive lag error accumulates and weather forecasts degrade — a trend only a "
+        "multi-origin backtest can show cleanly (a single live forecast's per-day errors are "
+        "dominated by day-of-week seasonality and date-specific noise)."
+    )
 
-    c1, c2, c3, c4 = st.columns(4)
+# ── Live accuracy ──────────────────────────────────────────────────────────────────
+st.divider()
+st.markdown("**Live tracking** — realized error of served forecasts as they age into actuals")
+if perf_df is not None and len(perf_df) > 0:
+    c1, c2 = st.columns(2)
     c1.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
     c2.metric("Live MAE", f"{perf_df['error_M'].abs().mean():.3f}M")
-    c3.metric("95% CI coverage", cov_txt,
-              help="Share of actuals that landed inside the SARIMAX 95% band. Near 95% = well-calibrated.")
-    c4.metric("Forecasts scored",
-              f"{len(perf_df)} pts · {perf_df['forecast_run_date'].nunique()} runs")
+    st.caption(
+        f"Live = realized error of recently-served forecasts, over "
+        f"{len(perf_df)} forecast-days across {perf_df['forecast_run_date'].nunique()} runs. "
+        "Includes model versions since improved — expected to run above the backtest and "
+        "converge toward it as current-model forecasts age into actuals."
+    )
 
-    col_h, col_s = st.columns(2)
-
-    with col_h:
-        by_h = (
-            perf_df.assign(abs_err=perf_df["error_M"].abs())
-            .groupby("horizon")["abs_err"].mean().reset_index().sort_values("horizon")
-        )
-        fig_h = go.Figure(go.Scatter(
-            x=by_h["horizon"], y=by_h["abs_err"],
-            mode="lines+markers", line=dict(color=_C["red"], width=2),
-            hovertemplate="Day %{x}: MAE %{y:.3f} M<extra></extra>",
-        ))
-        fig_h.update_layout(
-            title="Error grows with horizon",
-            xaxis_title="Days ahead", yaxis_title="Mean abs error (M)",
-            height=360, margin=dict(l=50, r=20, t=40, b=45),
-        )
-        st.plotly_chart(fig_h, use_container_width=True, config=_PLOTLY_CONFIG)
-        st.caption("Forecast error by lead time — day 1 is easy, day 14 compounds. This is the "
-                   "horizon the model actually serves in production.")
-
-    with col_s:
-        min_val = min(perf_df["actual_M"].min(), perf_df["ensemble_forecast_M"].min()) * 0.98
-        max_val = max(perf_df["actual_M"].max(), perf_df["ensemble_forecast_M"].max()) * 1.02
-        fig_scatter = go.Figure()
-        fig_scatter.add_trace(go.Scatter(
-            x=[min_val, max_val], y=[min_val, max_val],
-            mode="lines", name="Perfect",
-            line=dict(color="rgba(255,255,255,0.3)", dash="dash"), hoverinfo="skip",
-        ))
-        fig_scatter.add_trace(go.Scatter(
-            x=perf_df["actual_M"], y=perf_df["ensemble_forecast_M"],
-            mode="markers", name="Forecast",
-            marker=dict(color=_C["blue"], size=8, opacity=0.7),
-            text=perf_df["date"].astype(str),
-            hovertemplate="%{text}<br>Actual %{x:.3f}M<br>Forecast %{y:.3f}M<extra></extra>",
-        ))
-        fig_scatter.update_layout(
-            title="Forecast vs actual",
-            xaxis_title="Actual (M)", yaxis_title="Forecast (M)",
-            height=360, hovermode="closest",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=50, r=20, t=40, b=45),
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True, config=_PLOTLY_CONFIG)
-        st.caption("Points on the dashed line are perfect; tight clustering means low bias.")
+    min_val = min(perf_df["actual_M"].min(), perf_df["ensemble_forecast_M"].min()) * 0.98
+    max_val = max(perf_df["actual_M"].max(), perf_df["ensemble_forecast_M"].max()) * 1.02
+    fig_scatter = go.Figure()
+    fig_scatter.add_trace(go.Scatter(
+        x=[min_val, max_val], y=[min_val, max_val],
+        mode="lines", name="Perfect",
+        line=dict(color="rgba(255,255,255,0.3)", dash="dash"), hoverinfo="skip",
+    ))
+    fig_scatter.add_trace(go.Scatter(
+        x=perf_df["actual_M"], y=perf_df["ensemble_forecast_M"],
+        mode="markers", name="Forecast",
+        marker=dict(color=_C["blue"], size=8, opacity=0.7),
+        text=perf_df["date"].astype(str),
+        hovertemplate="%{text}<br>Actual %{x:.3f}M<br>Forecast %{y:.3f}M<extra></extra>",
+    ))
+    fig_scatter.update_layout(
+        title="Forecast vs actual",
+        xaxis_title="Actual (M)", yaxis_title="Forecast (M)",
+        height=360, hovermode="closest",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=50, r=20, t=40, b=45),
+    )
+    _show(fig_scatter)
+    st.caption("Points on the dashed line are perfect; tight clustering means low bias.")
 else:
     st.info("Live accuracy accumulates weekly as forecasts age into actuals — check back after the next cycle.")
 
 # ── Interpretability (training-derived; shown regardless of live history) ─────────
+st.divider()
 st.markdown("**How each model reasons** — interpretability for both halves of the ensemble")
 # SHAP gets a wider column: it's a dense beeswarm that needs more horizontal
 # room to stay legible than the SARIMAX bar chart.
@@ -612,11 +548,82 @@ with coef_col:
             xaxis_title="Coefficient on scaled input (+ raises / − lowers ridership)",
             margin=dict(l=10, r=20, t=30, b=50),
         )
-        st.plotly_chart(fig_coef, use_container_width=True, config=_PLOTLY_CONFIG)
+        _show(fig_coef)
         st.caption("SARIMAX — weather/holiday effects (inputs scaled 0–1, so bars are comparable). "
                    "Faded bars are not significant (p ≥ 0.05).")
     else:
         st.info("SARIMAX coefficients generate on the next training run.")
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — WEATHER AS A PREDICTIVE SIGNAL
+# ══════════════════════════════════════════════════════════════════════════════
+st.subheader("Does Weather Predict Ridership?", anchor=False)
+st.caption("Weather correlates only weakly with daily ridership — recent ridership and the "
+           "weekly calendar carry most of the predictive signal.")
+
+hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
+ridership_M = hist_wx["daily_ridership"] / 1_000_000
+temp_col, precip_col = st.columns([1, 1])
+
+with temp_col:
+    z = np.polyfit(hist_wx["temp"], ridership_M, 1)
+    x_line = np.linspace(hist_wx["temp"].min(), hist_wx["temp"].max(), 100)
+    fig_temp = go.Figure()
+    fig_temp.add_trace(go.Scatter(
+        x=hist_wx["temp"], y=ridership_M,
+        mode="markers", name="Daily",
+        marker=dict(color=_C["blue"], size=5, opacity=0.45),
+        hovertemplate="Temp: %{x:.1f}°C<br>Ridership: %{y:.2f}M<extra></extra>",
+    ))
+    fig_temp.add_trace(go.Scatter(
+        x=x_line, y=np.poly1d(z)(x_line),
+        mode="lines", name="Trend",
+        line=dict(color=_C["orange"], width=2),
+        hoverinfo="skip",
+    ))
+    fig_temp.update_layout(
+        title="Temperature vs Ridership",
+        xaxis_title="Temperature (°C)", yaxis_title="Ridership (M)",
+        height=340, margin=dict(t=40, b=30, l=40, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    _r_t = float(np.corrcoef(hist_wx["temp"], ridership_M)[0, 1])
+    _show(fig_temp)
+    st.caption(f"Pearson r = {_r_t:+.2f} — weak linear correlation")
+
+with precip_col:
+    z = np.polyfit(hist_wx["precip"], ridership_M, 1)
+    x_line = np.linspace(hist_wx["precip"].min(), hist_wx["precip"].max(), 100)
+    fig_precip = go.Figure()
+    fig_precip.add_trace(go.Scatter(
+        x=hist_wx["precip"], y=ridership_M,
+        mode="markers", name="Daily",
+        marker=dict(color=_C["blue"], size=5, opacity=0.45),
+        hovertemplate="Precip: %{x:.2f} mm<br>Ridership: %{y:.2f}M<extra></extra>",
+    ))
+    fig_precip.add_trace(go.Scatter(
+        x=x_line, y=np.poly1d(z)(x_line),
+        mode="lines", name="Trend",
+        line=dict(color=_C["orange"], width=2),
+        hoverinfo="skip",
+    ))
+    fig_precip.update_layout(
+        title="Precipitation vs Ridership",
+        xaxis_title="Precipitation (mm)", yaxis_title="Ridership (M)",
+        height=340, margin=dict(t=40, b=30, l=40, r=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    _r_p = float(np.corrcoef(hist_wx["precip"], ridership_M)[0, 1])
+    _show(fig_precip)
+    st.caption(f"Pearson r = {_r_p:+.2f} — weak linear correlation")
+
+st.caption(
+    "⚠️ Raw daily correlations — confounded by season and day-of-week (e.g. cold months "
+    "are also winter-schedule months). Shown to illustrate the *marginal* weather signal, not "
+    "a causal effect; the models isolate it by controlling for calendar features."
+)
 
 st.divider()
 

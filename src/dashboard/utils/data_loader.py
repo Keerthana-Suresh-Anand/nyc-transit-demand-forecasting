@@ -29,6 +29,10 @@ from src.utils.config import (
 
 logger = logging.getLogger(__name__)
 
+# Live metrics use only the most recent N weekly forecasts, so they reflect current
+# performance and converge as the latest (fixed) models replace older served forecasts.
+_LIVE_FORECAST_FILES = 8
+
 
 @st.cache_resource
 def _s3():
@@ -159,7 +163,11 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
     Cross-join the last 8 weekly forecast parquets with actuals from the gold parquet.
     Returns columns: forecast_run_date, date, ensemble_forecast_M, sarimax_forecast_M,
                      actual_M, error_M, abs_pct_error, ci_lower, ci_upper, horizon, week.
-    horizon = days between the forecast run date and the target date (1..14).
+    horizon = forecast step: days from the forecast origin (last actual + 1) to the
+    target date (1..14). Anchored on the origin, not the pipeline run date, so it
+    reflects how many recursive steps ahead each prediction is — the axis the error
+    actually grows along. (The run date sits ~7-13 days after the origin due to the
+    MTA publish lag, which would otherwise push horizons negative.)
     """
     s3 = _s3()
     history = load_history(days=180)
@@ -180,7 +188,7 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
 
     today = date.today()
     chunks = []
-    for key in parquet_keys:
+    for key in parquet_keys[-_LIVE_FORECAST_FILES:]:  # most recent forecasts only
         parts = key.rsplit("forecast_", 1)
         if len(parts) < 2:
             logger.warning("Unexpected forecast key format: %s", key)
@@ -192,6 +200,10 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
             continue
 
         df_fc["date"] = pd.to_datetime(df_fc["date"]).dt.normalize()
+        # Forecast origin = last actual + 1 = the earliest date in the file. Horizon
+        # is measured from here (1..14), not from the run date, so it tracks recursive
+        # steps ahead rather than the MTA publish lag.
+        forecast_origin = df_fc["date"].min()
         past = df_fc[df_fc["date"].dt.date < today].copy()
         if past.empty:
             continue
@@ -201,6 +213,7 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
             continue
 
         merged["forecast_run_date"] = run_date_str
+        merged["horizon"] = (merged["date"] - forecast_origin).dt.days + 1
         merged["error_M"] = merged["ensemble_forecast_M"] - merged["actual_M"]
         merged["abs_pct_error"] = merged["error_M"].abs() / merged["actual_M"] * 100
         for col in ("ci_lower", "ci_upper"):  # older parquets may predate CI columns
@@ -211,7 +224,7 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
                 [
                     "forecast_run_date", "date", "ensemble_forecast_M",
                     "sarimax_forecast_M", "actual_M", "error_M", "abs_pct_error",
-                    "ci_lower", "ci_upper",
+                    "ci_lower", "ci_upper", "horizon",
                 ]
             ]
         )
@@ -223,10 +236,6 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
         .sort_values("date", ascending=False)
         .reset_index(drop=True)
     )
-    # Forecast horizon in days: how far ahead each target date was from its run.
-    df["horizon"] = (
-        pd.to_datetime(df["date"]) - pd.to_datetime(df["forecast_run_date"])
-    ).dt.days
     df["week"] = pd.to_datetime(df["date"]).dt.to_period("W")
     return df
 

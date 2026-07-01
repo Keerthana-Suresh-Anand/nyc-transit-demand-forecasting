@@ -62,6 +62,15 @@ _C = {
 # independent of the toolbar, so hovering still shows values.
 _PLOTLY_CONFIG = {"displayModeBar": False}
 
+
+def _show(fig):
+    """Render a chart with pan/zoom locked. These are fixed, curated views, so
+    fixedrange disables drag-pan and scroll-zoom (which the hidden modebar can't
+    undo) while leaving hover tooltips intact."""
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
+    st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
+
 # Medallion data-flow diagram for the "How It Works" section (rendered by graphviz).
 _PIPELINE_DOT = """
 digraph {
@@ -345,7 +354,7 @@ fig.update_layout(
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     margin=dict(l=50, r=30, t=40, b=50),
 )
-st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
+_show(fig)
 
 # Per-day numbers behind the forward-7 KPI — the concrete deliverable.
 st.markdown(f"**Daily forecast · {fwd7_range}**")
@@ -392,7 +401,7 @@ if acc:
             height=300, margin=dict(l=10, r=20, t=40, b=40),
             yaxis=dict(autorange="reversed"),
         )
-        st.plotly_chart(fig_bl, use_container_width=True, config=_PLOTLY_CONFIG)
+        _show(fig_bl)
         st.caption("Seasonal-naive (same weekday last week) is the benchmark to beat — weekly "
                    "seasonality dominates daily ridership, so a model must clear it to earn its complexity.")
 
@@ -462,7 +471,7 @@ if perf_df is not None and len(perf_df) > 0:
             xaxis_title="Days ahead", yaxis_title="Mean abs error (M)",
             height=360, margin=dict(l=50, r=20, t=40, b=45),
         )
-        st.plotly_chart(fig_h, use_container_width=True, config=_PLOTLY_CONFIG)
+        _show(fig_h)
         st.caption("Forecast error by lead time — day 1 is easy, day 14 compounds. This is the "
                    "horizon the model actually serves in production.")
 
@@ -489,7 +498,7 @@ if perf_df is not None and len(perf_df) > 0:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=50, r=20, t=40, b=45),
         )
-        st.plotly_chart(fig_scatter, use_container_width=True, config=_PLOTLY_CONFIG)
+        _show(fig_scatter)
         st.caption("Points on the dashed line are perfect; tight clustering means low bias.")
 else:
     st.info("Live accuracy accumulates weekly as forecasts age into actuals — check back after the next cycle.")
@@ -533,7 +542,7 @@ with coef_col:
             xaxis_title="Coefficient on scaled input (+ raises / − lowers ridership)",
             margin=dict(l=10, r=20, t=30, b=50),
         )
-        st.plotly_chart(fig_coef, use_container_width=True, config=_PLOTLY_CONFIG)
+        _show(fig_coef)
         st.caption("SARIMAX — weather/holiday effects (inputs scaled 0–1, so bars are comparable). "
                    "Faded bars are not significant (p ≥ 0.05).")
     else:
@@ -575,7 +584,7 @@ with temp_col:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     _r_t = float(np.corrcoef(hist_wx["temp"], ridership_M)[0, 1])
-    st.plotly_chart(fig_temp, use_container_width=True, config=_PLOTLY_CONFIG)
+    _show(fig_temp)
     st.caption(f"Pearson r = {_r_t:+.2f} · R² = {_r_t ** 2:.2f}")
 
 with precip_col:
@@ -601,7 +610,7 @@ with precip_col:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     _r_p = float(np.corrcoef(hist_wx["precip"], ridership_M)[0, 1])
-    st.plotly_chart(fig_precip, use_container_width=True, config=_PLOTLY_CONFIG)
+    _show(fig_precip)
     st.caption(f"Pearson r = {_r_p:+.2f} · R² = {_r_p ** 2:.2f}")
 
 st.caption(

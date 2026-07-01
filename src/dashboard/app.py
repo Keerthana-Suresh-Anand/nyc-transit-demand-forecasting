@@ -435,14 +435,15 @@ if walkforward and walkforward.get("bias"):
 
 # ── Live accuracy ──────────────────────────────────────────────────────────────────
 if perf_df is not None and len(perf_df) > 0:
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     c1.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
     c2.metric("Live MAE", f"{perf_df['error_M'].abs().mean():.3f}M")
-    c3.metric("Forecasts scored",
-              f"{len(perf_df)} pts · {perf_df['forecast_run_date'].nunique()} runs")
-    st.caption("Live = realized error of recently-served forecasts, including model versions "
-               "since improved — expected to run above the backtest and converge toward it as "
-               "current-model forecasts age into actuals.")
+    st.caption(
+        f"Live = realized error of recently-served forecasts, over "
+        f"{len(perf_df)} forecast-days across {perf_df['forecast_run_date'].nunique()} runs. "
+        "Includes model versions since improved — expected to run above the backtest and "
+        "converge toward it as current-model forecasts age into actuals."
+    )
 
     col_h, col_s = st.columns(2)
 

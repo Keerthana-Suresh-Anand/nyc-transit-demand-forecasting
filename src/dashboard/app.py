@@ -443,6 +443,30 @@ if walkforward and walkforward.get("bias"):
     st.caption("MASE < 1 beats seasonal-naive. Bias = mean(forecast − actual): "
                "**+ over-forecasts, − under-forecasts** (systematic skew, which MAE/MAPE hide).")
 
+# ── Error by horizon (backtest — averaged over every walk-forward origin) ─────────
+if walkforward and walkforward.get("mae_by_horizon"):
+    _mbh = walkforward["mae_by_horizon"]
+    st.divider()
+    st.markdown("**Error grows with horizon** (walk-forward backtest)")
+    fig_h = go.Figure(go.Scatter(
+        x=list(range(1, len(_mbh) + 1)), y=_mbh,
+        mode="lines+markers", line=dict(color=_C["red"], width=2),
+        hovertemplate="Day %{x}: MAE %{y:.3f} M<extra></extra>",
+    ))
+    fig_h.update_layout(
+        title="Ensemble error by lead time",
+        xaxis_title="Days ahead", yaxis_title="Mean abs error (M)",
+        height=340, margin=dict(l=50, r=20, t=40, b=45),
+    )
+    _show(fig_h)
+    st.caption(
+        f"Mean ensemble error at each 1–14 day lead time, averaged over all "
+        f"{walkforward.get('n_origins', '')} backtest origins. Error compounds with horizon "
+        "as recursive lag error accumulates and weather forecasts degrade — a trend only a "
+        "multi-origin backtest can show cleanly (a single live forecast's per-day errors are "
+        "dominated by day-of-week seasonality and date-specific noise)."
+    )
+
 # ── Live accuracy ──────────────────────────────────────────────────────────────────
 st.divider()
 st.markdown("**Live tracking** — realized error of served forecasts as they age into actuals")
@@ -457,52 +481,30 @@ if perf_df is not None and len(perf_df) > 0:
         "converge toward it as current-model forecasts age into actuals."
     )
 
-    col_h, col_s = st.columns(2)
-
-    with col_h:
-        by_h = (
-            perf_df.assign(abs_err=perf_df["error_M"].abs())
-            .groupby("horizon")["abs_err"].mean().reset_index().sort_values("horizon")
-        )
-        fig_h = go.Figure(go.Scatter(
-            x=by_h["horizon"], y=by_h["abs_err"],
-            mode="lines+markers", line=dict(color=_C["red"], width=2),
-            hovertemplate="Day %{x}: MAE %{y:.3f} M<extra></extra>",
-        ))
-        fig_h.update_layout(
-            title="Error grows with horizon",
-            xaxis_title="Days ahead", yaxis_title="Mean abs error (M)",
-            height=360, margin=dict(l=50, r=20, t=40, b=45),
-        )
-        _show(fig_h)
-        st.caption("Forecast error by lead time — day 1 is easy, day 14 compounds. This is the "
-                   "horizon the model actually serves in production.")
-
-    with col_s:
-        min_val = min(perf_df["actual_M"].min(), perf_df["ensemble_forecast_M"].min()) * 0.98
-        max_val = max(perf_df["actual_M"].max(), perf_df["ensemble_forecast_M"].max()) * 1.02
-        fig_scatter = go.Figure()
-        fig_scatter.add_trace(go.Scatter(
-            x=[min_val, max_val], y=[min_val, max_val],
-            mode="lines", name="Perfect",
-            line=dict(color="rgba(255,255,255,0.3)", dash="dash"), hoverinfo="skip",
-        ))
-        fig_scatter.add_trace(go.Scatter(
-            x=perf_df["actual_M"], y=perf_df["ensemble_forecast_M"],
-            mode="markers", name="Forecast",
-            marker=dict(color=_C["blue"], size=8, opacity=0.7),
-            text=perf_df["date"].astype(str),
-            hovertemplate="%{text}<br>Actual %{x:.3f}M<br>Forecast %{y:.3f}M<extra></extra>",
-        ))
-        fig_scatter.update_layout(
-            title="Forecast vs actual",
-            xaxis_title="Actual (M)", yaxis_title="Forecast (M)",
-            height=360, hovermode="closest",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(l=50, r=20, t=40, b=45),
-        )
-        _show(fig_scatter)
-        st.caption("Points on the dashed line are perfect; tight clustering means low bias.")
+    min_val = min(perf_df["actual_M"].min(), perf_df["ensemble_forecast_M"].min()) * 0.98
+    max_val = max(perf_df["actual_M"].max(), perf_df["ensemble_forecast_M"].max()) * 1.02
+    fig_scatter = go.Figure()
+    fig_scatter.add_trace(go.Scatter(
+        x=[min_val, max_val], y=[min_val, max_val],
+        mode="lines", name="Perfect",
+        line=dict(color="rgba(255,255,255,0.3)", dash="dash"), hoverinfo="skip",
+    ))
+    fig_scatter.add_trace(go.Scatter(
+        x=perf_df["actual_M"], y=perf_df["ensemble_forecast_M"],
+        mode="markers", name="Forecast",
+        marker=dict(color=_C["blue"], size=8, opacity=0.7),
+        text=perf_df["date"].astype(str),
+        hovertemplate="%{text}<br>Actual %{x:.3f}M<br>Forecast %{y:.3f}M<extra></extra>",
+    ))
+    fig_scatter.update_layout(
+        title="Forecast vs actual",
+        xaxis_title="Actual (M)", yaxis_title="Forecast (M)",
+        height=360, hovermode="closest",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=50, r=20, t=40, b=45),
+    )
+    _show(fig_scatter)
+    st.caption("Points on the dashed line are perfect; tight clustering means low bias.")
 else:
     st.info("Live accuracy accumulates weekly as forecasts age into actuals — check back after the next cycle.")
 

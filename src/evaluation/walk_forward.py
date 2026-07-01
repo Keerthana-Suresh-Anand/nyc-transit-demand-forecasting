@@ -184,6 +184,14 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
             "verdict": significance_verdict(lo_ci, hi_ci, n1, n2),
         }
 
+    # Per-horizon ensemble MAE, averaged across origins (each 1..14-day step scored
+    # once per origin). Pooling many origins cancels the date-specific noise that makes
+    # any single forecast's per-day errors look non-monotonic, exposing the true
+    # error-vs-horizon trend the thin live view can't show.
+    ens_mat = np.vstack(ens50_blocks)          # (n_origins, horizon)
+    a_mat = np.vstack(blocks["actual"])
+    mae_by_horizon = [float(v) for v in np.abs(ens_mat - a_mat).mean(axis=0)]
+
     return {
         "n_origins": blocks["n_origins"],
         "n_points": int(len(a)),
@@ -220,6 +228,7 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
         "best_weight_mae": best_w_mae,
         "weight_curve": curve,
         "significance": significance,
+        "mae_by_horizon": mae_by_horizon,
     }
 
 

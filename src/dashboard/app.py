@@ -437,12 +437,15 @@ if walkforward and walkforward.get("bias"):
                 "MASE": round(_mase_d[_key], 2) if _key in _mase_d else None,
                 "Bias (M)": round(_bias_d[_key], 3) if _key in _bias_d else None,
             })
+    st.divider()
     st.markdown("**Per-model metrics** (walk-forward)")
     st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
     st.caption("MASE < 1 beats seasonal-naive. Bias = mean(forecast − actual): "
                "**+ over-forecasts, − under-forecasts** (systematic skew, which MAE/MAPE hide).")
 
 # ── Live accuracy ──────────────────────────────────────────────────────────────────
+st.divider()
+st.markdown("**Live tracking** — realized error of served forecasts as they age into actuals")
 if perf_df is not None and len(perf_df) > 0:
     c1, c2 = st.columns(2)
     c1.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
@@ -504,6 +507,7 @@ else:
     st.info("Live accuracy accumulates weekly as forecasts age into actuals — check back after the next cycle.")
 
 # ── Interpretability (training-derived; shown regardless of live history) ─────────
+st.divider()
 st.markdown("**How each model reasons** — interpretability for both halves of the ensemble")
 # SHAP gets a wider column: it's a dense beeswarm that needs more horizontal
 # room to stay legible than the SARIMAX bar chart.

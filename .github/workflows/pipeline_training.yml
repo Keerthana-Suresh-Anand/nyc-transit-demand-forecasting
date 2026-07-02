@@ -2,7 +2,10 @@ name: Pipeline — Training
 
 on:
   schedule:
-    - cron: "0 15 1-7 * 3"   # First Wednesday of each month, 15:00 UTC
+    # Every Wednesday 15:00 UTC. Cron ORs day-of-month and day-of-week when both are
+    # set, so "1-7 * 3" would fire on days 1-7 OR any Wednesday (i.e. every day of the
+    # first week). The `guard` job below restricts scheduled runs to the first Wednesday.
+    - cron: "0 15 * * 3"
   workflow_dispatch: {}
 
 concurrency:
@@ -17,7 +20,30 @@ env:
   MLFLOW_TRACKING_URI: sqlite:///mlflow.db
 
 jobs:
+  # Gate scheduled runs to the first Wednesday of the month. Dispatched runs (the
+  # drift retrain from monitoring, or a manual run) bypass the date check entirely.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: First-Wednesday guard (scheduled runs only)
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "Dispatched run (drift retrain or manual) — proceeding."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%-d)" -le 7 ]; then
+            echo "First Wednesday of the month — proceeding."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Scheduled Wednesday but not the first of the month — skipping."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   train:
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

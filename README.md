@@ -1,8 +1,8 @@
-# Weather-Driven Urban Transit Demand Forecasting
+# NYC Transit Demand Forecasting
 
 **Live dashboard:** https://nyc-transit-forecasting.streamlit.app/
 
-An end-to-end ML system that forecasts daily NYC subway ridership 14 days ahead using weather as an exogenous feature. Built to demonstrate production ML engineering practices: automated pipelines, model registry, drift monitoring, and a live dashboard.
+An end-to-end ML system that forecasts daily NYC subway ridership 14 days ahead. Weather was the starting hypothesis — does rain, snow, and temperature move ridership? It's included as a predictor and tested directly, and the evidence so far (SHAP, SARIMAX coefficient p-values, weak day-level correlations) says it's a **minor** one: recent ridership and the weekly calendar carry most of the signal. Built to demonstrate production ML engineering — automated pipelines, model registry, drift monitoring, a live dashboard — and honest, benchmark-driven evaluation.
 
 ---
 
@@ -22,7 +22,7 @@ Every Wednesday, the MTA publishes updated ridership data with a ~7-day lag. Thi
 
 The MTA has ~500 stations. Station-level hourly forecasting means fitting 12,000 simultaneous time series. With ~14 months of training data, there is not enough history to build reliable individual station models.
 
-More importantly, the key signal in this project is **weather** — rain, snow, and temperature affect whether people choose to take the subway at all. That signal is strong at the system level and weakens significantly as granularity increases. Weather doesn't explain why Times Square station is busy on a Tuesday morning; commuter patterns do, and those are largely weather-independent.
+The modeling question here is about **system-level demand dynamics** — seasonality, the weekly calendar, holidays, and weather — which live at the daily city-wide level. Station-level ridership is dominated by fixed commuter patterns (Times Square is busy on a Tuesday morning regardless of the weather), which is a different problem. Any weather effect, if present, is also most detectable in the aggregate and washes out as granularity increases.
 
 Daily city-wide is the right scope for the available data. Station-level or line-level forecasting is the natural extension with 3+ years of history.
 
@@ -149,8 +149,8 @@ A single scrollable page — accessible at the Streamlit Community Cloud URL wit
 
 ```bash
 # Clone and install
-git clone https://github.com/KeerthanaSureshAnand/Weather-Driven-Urban-Transit-Demand-Forecasting
-cd Weather-Driven-Urban-Transit-Demand-Forecasting
+git clone https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting
+cd nyc-transit-demand-forecasting
 pip install -e ".[pipeline,dev]"
 
 # Configure credentials

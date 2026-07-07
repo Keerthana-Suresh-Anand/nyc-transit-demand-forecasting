@@ -151,7 +151,7 @@ def side_text(text: str) -> None:
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🚇 NYC Transit")
-    side_text("Weather-Driven Ridership Forecasting")
+    side_text("Daily Subway Ridership Forecasting")
     st.divider()
 
     side_text("Python · SARIMAX · XGBoost · MLflow · DVC · Docker · AWS S3 · GitHub Actions")
@@ -560,8 +560,9 @@ st.divider()
 # SECTION 3 — WEATHER AS A PREDICTIVE SIGNAL
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Does Weather Predict Ridership?", anchor=False)
-st.caption("Weather correlates only weakly with daily ridership — recent ridership and the "
-           "weekly calendar carry most of the predictive signal.")
+st.caption("Weather was the project's starting hypothesis, so it's included as a predictor and "
+           "tested directly. The verdict: it correlates only weakly with daily ridership — "
+           "recent ridership and the weekly calendar carry most of the predictive signal.")
 
 hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
 ridership_M = hist_wx["daily_ridership"] / 1_000_000

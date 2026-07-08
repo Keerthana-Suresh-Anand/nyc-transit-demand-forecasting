@@ -221,9 +221,9 @@ with st.sidebar:
 # ─── Page header ──────────────────────────────────────────────────────────────
 st.title("NYC Subway Ridership Forecast", anchor=False)
 st.markdown(
-    "**An end-to-end ML system forecasting NYC subway ridership 14 days ahead**, refreshed "
-    "weekly. A **SARIMAX + XGBoost** ensemble over ridership history, calendar, holidays, and "
-    "weather, retrained and monitored by scheduled **GitHub Actions** pipelines."
+    "**An end-to-end ML system that produces a rolling 14-day NYC subway ridership forecast**, "
+    "refreshed weekly. A **SARIMAX + XGBoost** ensemble over ridership history, day-of-week, "
+    "holidays, and weather, retrained and monitored by scheduled **GitHub Actions** pipelines."
 )
 
 if forecast_data is None or history is None:
@@ -700,14 +700,21 @@ st.caption(
 
 st.divider()
 
+_n_orig = (walkforward or {}).get("n_origins")
+_eval_limit = (
+    f"- The backtest covers a recent {_n_orig}-round window (about one season), so model "
+    "comparisons carry wide confidence intervals — a deliberate choice to mirror how the "
+    "model serves between retrains"
+    if _n_orig
+    else "- The backtest covers a short recent window (about one season), so model comparisons "
+    "carry wide confidence intervals — a deliberate choice to mirror how the model serves "
+    "between retrains"
+)
 st.markdown("**Known limitations**")
 st.markdown(
-    "- MTA publishes ridership weekly with a ~1-week lag → short genuine-future runway "
-    "(the near horizon is effectively a nowcast)\n"
-    "- Daily, **city-wide** granularity, not station-level — the weather signal is strongest "
-    "at the system level, and station models would need far more data\n"
-    "- Weather is a **marginal** predictor here; recent ridership and the weekly calendar carry "
-    "most of the signal (formal ablation pending)\n"
-    "- The ensemble beats seasonal-naive by ~15–33%, but is **statistically indistinguishable** "
-    "from either model alone — kept both for plausible diversification, not a proven edge"
+    "- How far ahead the forecast reaches is set by the MTA's ~1–2 week data lag — each "
+    "14-day run fills in the recent weeks the MTA hasn't published yet, then projects ahead\n"
+    + _eval_limit
+    + "\n- The model learns regular patterns, so it can't anticipate one-off shocks — service "
+    "disruptions, special events, or structural breaks — until they appear in the data"
 )

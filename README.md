@@ -2,7 +2,7 @@
 
 **Live dashboard:** https://nyc-transit-forecasting.streamlit.app/
 
-An end-to-end ML system that forecasts daily NYC subway ridership 14 days ahead. Weather was the starting hypothesis — does rain, snow, and temperature move ridership? It's included as a predictor and tested directly, and the evidence so far (SHAP, SARIMAX coefficient p-values, weak day-level correlations) says it's a **minor** one: recent ridership and the weekly calendar carry most of the signal. Built to demonstrate production ML engineering — automated pipelines, model registry, drift monitoring, a live dashboard — and honest, benchmark-driven evaluation.
+An end-to-end ML system that produces a rolling 14-day forecast of daily NYC subway ridership, refreshed weekly. Weather was the starting hypothesis — does rain, snow, and temperature move ridership? It's included as a predictor and tested directly, and the evidence so far (SHAP, SARIMAX coefficient p-values, weak day-level correlations) says it's a **minor** one: recent ridership and the weekly calendar carry most of the signal. Built to demonstrate production ML engineering — automated pipelines, model registry, drift monitoring, a live dashboard — and honest, benchmark-driven evaluation.
 
 ---
 
@@ -12,7 +12,7 @@ Every Wednesday, the MTA publishes updated ridership data with a ~7-day lag. Thi
 
 1. **Ingests** new ridership + weather data automatically via GitHub Actions
 2. **Trains** two models — SARIMAX and XGBoost — and selects the champion based on holdout MAE
-3. **Forecasts** 14 days ahead using a weighted ensemble of both models
+3. **Forecasts** a rolling 14-day horizon using a weighted ensemble of both models
 4. **Monitors** forecast accuracy and input data drift daily, triggering retraining when needed
 5. **Displays** everything on a live Streamlit dashboard
 

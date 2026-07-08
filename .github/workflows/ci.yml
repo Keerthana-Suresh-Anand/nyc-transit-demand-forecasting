@@ -10,6 +10,13 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Supersede stale PR runs (each new push cancels the previous run for that ref),
+# but never cancel a main-branch run mid-flight so an in-progress image publish
+# always completes. Grouped per-ref so PRs and main don't interrupt each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest

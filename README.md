@@ -20,11 +20,11 @@ Every Wednesday, the MTA publishes updated ridership data with a ~7-day lag. Thi
 
 ## Why daily city-wide (not station-level or hourly)
 
-The MTA has ~500 stations. Station-level hourly forecasting means fitting 12,000 simultaneous time series. With ~14 months of training data, there is not enough history to build reliable individual station models.
+The MTA has ~500 stations. Station-level (let alone hourly) forecasting means fitting hundreds to thousands of simultaneous, far sparser series — a fundamentally different and much more data- and compute-hungry problem than a single city-wide series.
 
 The modeling question here is about **system-level demand dynamics** — seasonality, the weekly calendar, holidays, and weather — which live at the daily city-wide level. Station-level ridership is dominated by fixed commuter patterns (Times Square is busy on a Tuesday morning regardless of the weather), which is a different problem. Any weather effect, if present, is also most detectable in the aggregate and washes out as granularity increases.
 
-Daily city-wide is the right scope for the available data. Station-level or line-level forecasting is the natural extension with 3+ years of history.
+Daily city-wide is the right scope for the modeling question here. Station- or line-level forecasting is a natural extension.
 
 ---
 
@@ -191,12 +191,14 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 ## Known limitations and future work
 
-- **Granularity:** daily city-wide forecasting is the right scope for 14 months of data. Line-level or station-level forecasting is the natural next step with 3+ years of history.
-- **Event features:** NYC events (concerts, sports) are displayed as dashboard annotations but not yet used as model features — too sparse for a 460-day daily model.
-- **MLflow hosting:** runs on local SQLite synced to S3. A production deployment would use a shared MLflow tracking server backed by PostgreSQL on RDS.
-- **Ensemble weights:** currently 50/50, chosen because the two models are statistically indistinguishable on the current evaluation window. A longer history (more walk-forward origins across multiple seasons) would tighten the confidence intervals and could justify an asymmetric weight.
-- **Historical backfill:** current training data starts from January 2025. Incorporating 2023–2024 MTA ridership would extend the training window to 3 years and improve seasonal pattern estimation.
-- **Docker-based pipeline execution:** GitHub Actions currently installs dependencies directly via `pip`. A more production-grade approach would have workflows pull and run the published Docker image, ensuring the CI environment is identical to any other deployment target.
+- **Forward reach:** the MTA publishes ridership with a ~1–2 week lag, so only the latter part of each 14-day forecast is genuinely ahead of today — the earlier days fill the gap to the last published week.
+- **One-off shocks:** the models learn regular patterns (weekly seasonality, holidays, weather) and can't anticipate service disruptions, special events, or structural breaks until they appear in the data.
+- **Evaluation power:** the walk-forward backtest uses a fixed 90-day / 11-origin window (production-faithful — it mirrors how the model serves between retrains), so its confidence intervals are wide and it spans only one season. A longer, multi-season window with a per-origin refit would tighten the CIs and could justify an asymmetric ensemble weight (currently 50/50 because the two models are statistically indistinguishable on this window).
+- **Ensemble uncertainty:** the forecast is a point estimate — a calibrated prediction band around the ensemble is planned (the shipped SARIMAX interval isn't the ensemble's).
+- **Granularity:** daily city-wide is the scope; line- or station-level forecasting is a natural extension (a different, far more data- and compute-hungry problem).
+- **Event features:** NYC events (concerts, sports) are shown as dashboard context but not yet used as model features — too sparse to help a daily city-wide model.
+- **MLflow hosting:** runs on local SQLite synced to S3; a production deployment would use a shared tracking server on PostgreSQL/RDS.
+- **Docker in CI:** the CI workflow installs dependencies via `pip`; running the published Docker image in CI would make the environment identical across targets (the training/prediction pipelines already run the image).
 
 ---
 

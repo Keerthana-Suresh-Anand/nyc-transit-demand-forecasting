@@ -266,17 +266,9 @@ if _d0.month == _d1.month:
 else:
     fwd7_range = f"{_d0.strftime('%b')} {_d0.day} – {_d1.strftime('%b')} {_d1.day}"
 total7 = float(fwd7["ensemble_forecast_M"].sum())
-wow_txt = None
-try:
-    prior7 = history["daily_ridership"].tail(7) / 1_000_000
-    if len(prior7) == 7:
-        base = float(prior7.sum())
-        wow_txt = f"{(total7 - base) / base * 100:+.1f}% vs prior 7d"
-except Exception:
-    pass
 k1.metric(
-    f"7-Day Forecast · {fwd7_range}", f"{total7:.1f}M", wow_txt,
-    help="Total for the forward 7 days of the 14-day window (MTA's ~1-week lag; the date range shows which).",
+    f"7-Day Forecast · {fwd7_range}", f"{total7:.1f}M",
+    help="Total predicted ridership for the forward 7 days of the 14-day forecast.",
 )
 
 if acc and acc["ens_mae"] is not None and acc["seasonal_naive_mae"] is not None:
@@ -304,33 +296,43 @@ st.caption(f"Generated {run_date} · {fc_start}–{fc_end}")
 
 fig = go.Figure()
 
+# Plot only recent history so the 14-day forecast is legible (pan/zoom is locked);
+# the full-year `history` is still used by the weather-correlation section below.
+chart_hist = history.tail(90)
+
+# Anchor the forecast lines to the last actual so they connect to where the actuals
+# end (no seam at the data-lag band edge): the forecast starts at last_actual + 1, so
+# prepend the last actual point to each forecast series.
+_anchor_val = float(chart_hist["daily_ridership"].iloc[-1]) / 1_000_000
+_fc_x = [chart_hist.index[-1], *fc_rows["date"]]
+
 fig.add_trace(go.Scatter(
-    x=history.index,
-    y=history["daily_ridership"] / 1_000_000,
+    x=chart_hist.index,
+    y=chart_hist["daily_ridership"] / 1_000_000,
     mode="lines",
     name="Actuals",
     line=dict(color=_C["blue"], width=2),
 ))
 
 fig.add_trace(go.Scatter(
-    x=fc_rows["date"],
-    y=fc_rows["sarimax_forecast_M"],
+    x=_fc_x,
+    y=[_anchor_val, *fc_rows["sarimax_forecast_M"]],
     mode="lines",
     name="SARIMAX",
     line=dict(color=_C["orange"], width=1.5, dash="dot"),
 ))
 
 fig.add_trace(go.Scatter(
-    x=fc_rows["date"],
-    y=fc_rows["xgboost_forecast_M"],
+    x=_fc_x,
+    y=[_anchor_val, *fc_rows["xgboost_forecast_M"]],
     mode="lines",
     name="XGBoost",
     line=dict(color=_C["teal"], width=1.5, dash="dot"),
 ))
 
 fig.add_trace(go.Scatter(
-    x=fc_rows["date"],
-    y=fc_rows["ensemble_forecast_M"],
+    x=_fc_x,
+    y=[_anchor_val, *fc_rows["ensemble_forecast_M"]],
     mode="lines+markers",
     name="Ensemble",
     line=dict(color=_C["red"], width=2.5),
@@ -397,34 +399,52 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("How It Works", anchor=False)
 st.caption("The system behind the numbers — built and evaluated like a production service.")
-arch_col, method_col = st.columns(2)
+with st.expander("🏗  Architecture & MLOps", expanded=True):
+    st.graphviz_chart(_PIPELINE_DOT)
+    st.markdown(
+        "**Data & storage**\n\n"
+        "- **Bronze → Silver → Gold** medallion layers in S3 (raw → merged → model-ready features)\n"
+        "- **Dual-API MTA ingestion** — historical (2020–24) + live (2025+) feeds stitched automatically\n"
+        "- **DVC** snapshots every gold dataset — md5-versioned and reproducible\n\n"
+        "**Models & registry**\n\n"
+        "- **MLflow** registry — both models versioned, gated to Production on held-out MAE\n"
+        "- **Train / evaluate / ship** — scored on a held-out tail, then refit on the *full* dataset "
+        "(scaler included) before registering\n"
+        "- **SARIMAX order cached** and reused between runs (re-searched quarterly), keeping "
+        "the model structure stable month to month\n\n"
+        "**Orchestration & monitoring**\n\n"
+        "- **GitHub Actions** runs all compute — 4 automated pipelines (ingest / train / predict / "
+        "monitor); AWS is storage-only, no servers\n"
+        "- **Docker** image for reproducible runs; **CI** lints and runs unit tests on every PR\n"
+        "- **Self-monitoring** — rolling MAE triggers retrain, with a cooldown circuit breaker to "
+        "prevent thrash\n"
+        "- Every forecast **stamped with model version + run_id + data md5** — fully traceable"
+    )
 
-with arch_col:
-    with st.expander("🏗  Architecture & MLOps", expanded=True):
-        st.graphviz_chart(_PIPELINE_DOT)
-        st.markdown(
-            "- **Bronze → Silver → Gold** medallion layers in S3 (raw → merged → modelled features)\n"
-            "- **MLflow** registry — both models versioned, gated to Production on holdout MAE\n"
-            "- **GitHub Actions** runs all compute: 4 scheduled pipelines (ingest / train / predict / monitor)\n"
-            "- **Docker** image for reproducible runs · **DVC** snapshots every gold dataset\n"
-            "- **Self-monitoring** — rolling MAE triggers retrains, with a cooldown to prevent thrash\n"
-            "- AWS is storage-only; no servers to maintain"
-        )
+with st.expander("🧠  Models"):
+    st.markdown(
+        "**SARIMAX** — weekly + annual seasonality with weather, holiday, and snow-lag exogenous "
+        "inputs. Order chosen by auto-ARIMA (cached between runs); exog min-max scaled.\n\n"
+        "**XGBoost** — gradient-boosted trees over ridership lags (1/2/3/7/14-day), rolling stats "
+        "(7-day std, 14-day mean), and calendar features. Early-stopped tree count; SHAP computed "
+        "each run for explainability.\n\n"
+        "**Ensemble** — a 50/50 blend of the two (tunable). Equal weights are evidence-based — see "
+        "Model Accuracy below."
+    )
 
-with method_col:
-    with st.expander("🔬  Evaluation methodology"):
-        st.markdown(
-            "**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon and "
-            "weekly re-anchor) found SARIMAX and XGBoost statistically indistinguishable — a block "
-            "bootstrap put every pairwise MAE-difference 95% CI across zero. With no reliable winner, "
-            "equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
-            "**Why keep both?** The ensemble's point estimate is best and the weight curve is convex "
-            "(genuine diversification), with no evidence it hurts.\n\n"
-            "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
-            "seasonal false alarms, so it's tracked but informational only.\n\n"
-            "**Benchmarks** (seasonal-naive, persistence) are scored every cycle: a model is only as "
-            "good as what it beats."
-        )
+with st.expander("🔬  Evaluation methodology"):
+    st.markdown(
+        "**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon and "
+        "weekly re-anchor) found SARIMAX and XGBoost statistically indistinguishable — a block "
+        "bootstrap put every pairwise MAE-difference 95% CI across zero. With no reliable winner, "
+        "equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
+        "**Why keep both?** The ensemble's point estimate is best and the weight curve is convex "
+        "(genuine diversification), with no evidence it hurts.\n\n"
+        "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
+        "seasonal false alarms, so it's tracked but informational only.\n\n"
+        "**Benchmarks** (seasonal-naive, persistence) are scored every cycle: a model is only as "
+        "good as what it beats."
+    )
 
 st.divider()
 

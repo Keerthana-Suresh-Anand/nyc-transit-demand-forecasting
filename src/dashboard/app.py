@@ -44,6 +44,22 @@ st.markdown(
         height: 460px !important;
         object-fit: contain;
     }
+    /* Sidebar caption text — our own classed div, since the caption testid resisted styling. */
+    section[data-testid="stSidebar"] .side-txt {
+        color: #bfc3ca; font-size: 0.85rem; line-height: 1.55;
+    }
+    /* "View source on GitHub" button in the sidebar. */
+    .gh-btn {
+        display: inline-flex; align-items: center; gap: 0.45rem;
+        padding: 0.4rem 0.75rem; border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 6px; background: rgba(255, 255, 255, 0.05);
+        color: #e6e8eb !important; text-decoration: none;
+        font-size: 0.85rem; font-weight: 500;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .gh-btn:hover {
+        background: rgba(255, 255, 255, 0.11); border-color: rgba(255, 255, 255, 0.4);
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -139,22 +155,34 @@ acc = _accuracy_view(walkforward, baseline)
 
 
 def side_text(text: str) -> None:
-    """Bright sidebar caption. st.caption renders too dim on the dark theme, and
-    global <style> targeting Streamlit's caption testid isn't applying in this
-    version — so style the text inline, which always wins."""
-    st.markdown(
-        f"<div style='color:#bfc3ca;font-size:0.85rem;line-height:1.55;'>{text}</div>",
-        unsafe_allow_html=True,
-    )
+    """Bright sidebar caption via the .side-txt class (defined in the top <style>
+    block). st.caption renders too dim on the dark theme and its testid resisted
+    styling, so we render our own classed div."""
+    st.markdown(f"<div class='side-txt'>{text}</div>", unsafe_allow_html=True)
 
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("🚇 NYC Transit")
-    side_text("Weather-Driven Ridership Forecasting")
+    side_text("Daily Subway Ridership Forecasting")
     st.divider()
 
     side_text("Python · SARIMAX · XGBoost · MLflow · DVC · Docker · AWS S3 · GitHub Actions")
+    st.markdown(
+        '<a class="gh-btn" '
+        'href="https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting" '
+        'target="_blank">'
+        '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">'
+        '<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19'
+        '-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52'
+        '-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2'
+        '-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82'
+        '.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 '
+        '2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 '
+        '1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>'
+        "View source on GitHub</a>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     st.markdown("**Pipeline Health**")
@@ -193,10 +221,9 @@ with st.sidebar:
 # ─── Page header ──────────────────────────────────────────────────────────────
 st.title("NYC Subway Ridership Forecast", anchor=False)
 st.markdown(
-    "**Decision support for service planning** — a rolling **14-day ridership forecast** for NYC "
-    "subway demand, refreshed weekly. A **SARIMAX + XGBoost** ensemble over ridership history, "
-    "day-of-week, holidays, and weather, automatically retrained and monitored by scheduled "
-    "**GitHub Actions** pipelines."
+    "**An end-to-end ML system that produces a rolling 14-day NYC subway ridership forecast**, "
+    "refreshed weekly. A **SARIMAX + XGBoost** ensemble over ridership history, day-of-week, "
+    "holidays, and weather, retrained and monitored by scheduled **GitHub Actions** pipelines."
 )
 
 if forecast_data is None or history is None:
@@ -239,25 +266,16 @@ if _d0.month == _d1.month:
 else:
     fwd7_range = f"{_d0.strftime('%b')} {_d0.day} – {_d1.strftime('%b')} {_d1.day}"
 total7 = float(fwd7["ensemble_forecast_M"].sum())
-wow_txt = None
-try:
-    prior7 = history["daily_ridership"].tail(7) / 1_000_000
-    if len(prior7) == 7:
-        base = float(prior7.sum())
-        wow_txt = f"{(total7 - base) / base * 100:+.1f}% vs prior 7d"
-except Exception:
-    pass
 k1.metric(
-    f"7-Day Forecast · {fwd7_range}", f"{total7:.1f}M", wow_txt,
-    help="Total predicted ridership over the forecast's forward 7 days. MTA's ~1-week lag means "
-         "these are the most-forward days of the 14-day window; the date range shows exactly which.",
+    f"7-Day Forecast · {fwd7_range}", f"{total7:.1f}M",
+    help="Total predicted ridership for the forward 7 days of the 14-day forecast.",
 )
 
 if acc and acc["ens_mae"] is not None and acc["seasonal_naive_mae"] is not None:
     ens_mae, sn_mae = acc["ens_mae"], acc["seasonal_naive_mae"]
     k2.metric(acc["label"], f"{ens_mae:.3f}M", help=acc["help"])
     k3.metric("Beats Seasonal-Naive", f"{(sn_mae - ens_mae) / sn_mae * 100:.0f}%",
-              help="Ensemble MAE vs the same-weekday-last-week benchmark on the same evaluation.")
+              help="Ensemble MAE vs the same-weekday-last-week benchmark.")
 else:
     k2.metric("Backtest MAE", "—")
     k3.metric("Beats Seasonal-Naive", "—")
@@ -278,33 +296,43 @@ st.caption(f"Generated {run_date} · {fc_start}–{fc_end}")
 
 fig = go.Figure()
 
+# Plot only recent history so the 14-day forecast is legible (pan/zoom is locked);
+# the full-year `history` is still used by the weather-correlation section below.
+chart_hist = history.tail(90)
+
+# Anchor the forecast lines to the last actual so they connect to where the actuals
+# end (no seam at the data-lag band edge): the forecast starts at last_actual + 1, so
+# prepend the last actual point to each forecast series.
+_anchor_val = float(chart_hist["daily_ridership"].iloc[-1]) / 1_000_000
+_fc_x = [chart_hist.index[-1], *fc_rows["date"]]
+
 fig.add_trace(go.Scatter(
-    x=history.index,
-    y=history["daily_ridership"] / 1_000_000,
+    x=chart_hist.index,
+    y=chart_hist["daily_ridership"] / 1_000_000,
     mode="lines",
     name="Actuals",
     line=dict(color=_C["blue"], width=2),
 ))
 
 fig.add_trace(go.Scatter(
-    x=fc_rows["date"],
-    y=fc_rows["sarimax_forecast_M"],
+    x=_fc_x,
+    y=[_anchor_val, *fc_rows["sarimax_forecast_M"]],
     mode="lines",
     name="SARIMAX",
     line=dict(color=_C["orange"], width=1.5, dash="dot"),
 ))
 
 fig.add_trace(go.Scatter(
-    x=fc_rows["date"],
-    y=fc_rows["xgboost_forecast_M"],
+    x=_fc_x,
+    y=[_anchor_val, *fc_rows["xgboost_forecast_M"]],
     mode="lines",
     name="XGBoost",
     line=dict(color=_C["teal"], width=1.5, dash="dot"),
 ))
 
 fig.add_trace(go.Scatter(
-    x=fc_rows["date"],
-    y=fc_rows["ensemble_forecast_M"],
+    x=_fc_x,
+    y=[_anchor_val, *fc_rows["ensemble_forecast_M"]],
     mode="lines+markers",
     name="Ensemble",
     line=dict(color=_C["red"], width=2.5),
@@ -367,12 +395,66 @@ st.dataframe(_daily, hide_index=True, use_container_width=True)
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — MODEL ACCURACY
+# SECTION 2 — HOW IT WORKS
+# ══════════════════════════════════════════════════════════════════════════════
+st.subheader("How It Works", anchor=False)
+st.caption("The system behind the numbers — built and evaluated like a production service.")
+with st.expander("🏗  Architecture & MLOps", expanded=True):
+    st.graphviz_chart(_PIPELINE_DOT)
+    st.markdown(
+        "**Data & storage**\n\n"
+        "- **Bronze → Silver → Gold** medallion layers in S3 (raw → merged → model-ready features)\n"
+        "- **Dual-API MTA ingestion** — historical (2020–24) + live (2025+) feeds stitched automatically\n"
+        "- **DVC** snapshots every gold dataset — md5-versioned and reproducible\n\n"
+        "**Models & registry**\n\n"
+        "- **MLflow** registry — both models versioned, gated to Production on held-out MAE\n"
+        "- **Train / evaluate / ship** — scored on a held-out tail, then refit on the *full* dataset "
+        "(scaler included) before registering\n"
+        "- **SARIMAX order cached** and reused between runs (re-searched quarterly), keeping "
+        "the model structure stable month to month\n\n"
+        "**Orchestration & monitoring**\n\n"
+        "- **GitHub Actions** runs all compute — 4 automated pipelines (ingest / train / predict / "
+        "monitor); AWS is storage-only, no servers\n"
+        "- **Docker** image for reproducible runs; **CI** lints and runs unit tests on every PR\n"
+        "- **Self-monitoring** — rolling MAE triggers retrain, with a cooldown circuit breaker to "
+        "prevent thrash\n"
+        "- Every forecast **stamped with model version + run_id + data md5** — fully traceable"
+    )
+
+with st.expander("🧠  Models"):
+    st.markdown(
+        "**SARIMAX** — weekly + annual seasonality with weather, holiday, and snow-lag exogenous "
+        "inputs. Order chosen by auto-ARIMA (cached between runs); exog min-max scaled.\n\n"
+        "**XGBoost** — gradient-boosted trees over ridership lags (1/2/3/7/14-day), rolling stats "
+        "(7-day std, 14-day mean), and calendar features. Early-stopped tree count; SHAP computed "
+        "each run for explainability.\n\n"
+        "**Ensemble** — a 50/50 blend of the two (tunable). Equal weights are evidence-based — see "
+        "Model Accuracy below."
+    )
+
+with st.expander("🔬  Evaluation methodology"):
+    st.markdown(
+        "**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon and "
+        "weekly re-anchor) found SARIMAX and XGBoost statistically indistinguishable — a block "
+        "bootstrap put every pairwise MAE-difference 95% CI across zero. With no reliable winner, "
+        "equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
+        "**Why keep both?** The ensemble's point estimate is best and the weight curve is convex "
+        "(genuine diversification), with no evidence it hurts.\n\n"
+        "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
+        "seasonal false alarms, so it's tracked but informational only.\n\n"
+        "**Benchmarks** (seasonal-naive, persistence) are scored every cycle: a model is only as "
+        "good as what it beats."
+    )
+
+st.divider()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — MODEL ACCURACY
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Model Accuracy", anchor=False)
 if acc and acc["source"] == "walk-forward":
-    st.caption(f"Robust **{acc['n_origins']}-origin walk-forward backtest** (14-day horizon, weekly "
-               "re-anchor — how the model is actually used), plus live tracking as forecasts age into actuals.")
+    st.caption(f"**{acc['n_origins']}-origin walk-forward backtest** (14-day horizon, weekly "
+               "re-anchor), plus live tracking as forecasts age in.")
 else:
     st.caption("Evaluated on a reserved 30-day holdout, then tracked live as past forecasts age into actuals.")
 
@@ -402,14 +484,14 @@ if acc:
             yaxis=dict(autorange="reversed"),
         )
         _show(fig_bl)
-        st.caption("Seasonal-naive (same weekday last week) is the benchmark to beat — weekly "
-                   "seasonality dominates daily ridership, so a model must clear it to earn its complexity.")
+        st.caption("Seasonal-naive (same weekday last week) is the benchmark to beat — a model "
+                   "must clear it to earn its complexity.")
 
     # Bootstrap significance — only the walk-forward has enough origins to resample.
     if acc.get("significance"):
         st.markdown("**Is the difference real?** — block bootstrap, 95% CI on the MAE difference:")
-        st.caption("When two models are statistically indistinguishable (CI spans zero), neither "
-                   "earns a heavier weight — which is why the ensemble weights them 50/50.")
+        st.caption("Where the CI spans zero, the models are statistically indistinguishable — "
+                   "so the ensemble weights them 50/50.")
         for _key, _lbl in [
             ("sarimax_vs_xgboost", "SARIMAX vs XGBoost"),
             ("ensemble_vs_sarimax", "Ensemble vs SARIMAX"),
@@ -441,46 +523,49 @@ if walkforward and walkforward.get("bias"):
     st.markdown("**Per-model metrics** (walk-forward)")
     st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
     st.caption("MASE < 1 beats seasonal-naive. Bias = mean(forecast − actual): "
-               "**+ over-forecasts, − under-forecasts** (systematic skew, which MAE/MAPE hide).")
+               "**+ over-, − under-forecasts** — the directional skew MAE/MAPE hide.")
 
-# ── Error by horizon (backtest — averaged over every walk-forward origin) ─────────
-if walkforward and walkforward.get("mae_by_horizon"):
+# ── Live tracking + error diagnostics ─────────────────────────────────────────────
+st.divider()
+st.markdown("**Live tracking** — accuracy of served forecasts, with the backtest "
+            "error-by-horizon alongside.")
+
+_has_live = perf_df is not None and len(perf_df) > 0
+_has_horizon = bool(walkforward and walkforward.get("mae_by_horizon"))
+
+if _has_live:
+    c1, c2 = st.columns(2)
+    c1.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
+    c2.metric("Live MAE", f"{perf_df['error_M'].abs().mean():.3f}M")
+    st.caption(
+        f"Realized error of served forecasts ({len(perf_df)} days, "
+        f"{perf_df['forecast_run_date'].nunique()} runs). Includes older model versions, so it "
+        "runs above the backtest and converges as newer forecasts age in."
+    )
+else:
+    st.info("Accumulates weekly as forecasts age into actuals — check back after the next cycle.")
+
+# Backtest error-by-horizon + live forecast-vs-actual, side by side when both are
+# available, else whichever exists goes full width.
+_charts = []
+if _has_horizon:
     _mbh = walkforward["mae_by_horizon"]
-    st.divider()
-    st.markdown("**Error grows with horizon** (walk-forward backtest)")
     fig_h = go.Figure(go.Scatter(
         x=list(range(1, len(_mbh) + 1)), y=_mbh,
         mode="lines+markers", line=dict(color=_C["red"], width=2),
         hovertemplate="Day %{x}: MAE %{y:.3f} M<extra></extra>",
     ))
     fig_h.update_layout(
-        title="Ensemble error by lead time",
+        title="Error grows with horizon (backtest)",
         xaxis_title="Days ahead", yaxis_title="Mean abs error (M)",
-        height=340, margin=dict(l=50, r=20, t=40, b=45),
+        height=360, margin=dict(l=50, r=20, t=40, b=45),
     )
-    _show(fig_h)
-    st.caption(
-        f"Mean ensemble error at each 1–14 day lead time, averaged over all "
-        f"{walkforward.get('n_origins', '')} backtest origins. Error compounds with horizon "
-        "as recursive lag error accumulates and weather forecasts degrade — a trend only a "
-        "multi-origin backtest can show cleanly (a single live forecast's per-day errors are "
-        "dominated by day-of-week seasonality and date-specific noise)."
-    )
-
-# ── Live accuracy ──────────────────────────────────────────────────────────────────
-st.divider()
-st.markdown("**Live tracking** — realized error of served forecasts as they age into actuals")
-if perf_df is not None and len(perf_df) > 0:
-    c1, c2 = st.columns(2)
-    c1.metric("Live MAPE", f"{perf_df['abs_pct_error'].mean():.1f}%")
-    c2.metric("Live MAE", f"{perf_df['error_M'].abs().mean():.3f}M")
-    st.caption(
-        f"Live = realized error of recently-served forecasts, over "
-        f"{len(perf_df)} forecast-days across {perf_df['forecast_run_date'].nunique()} runs. "
-        "Includes model versions since improved — expected to run above the backtest and "
-        "converge toward it as current-model forecasts age into actuals."
-    )
-
+    _charts.append((
+        fig_h,
+        f"Mean ensemble error by lead time, across all {walkforward.get('n_origins', '')} "
+        "backtest origins. Error compounds as recursive lag error accumulates.",
+    ))
+if _has_live:
     min_val = min(perf_df["actual_M"].min(), perf_df["ensemble_forecast_M"].min()) * 0.98
     max_val = max(perf_df["actual_M"].max(), perf_df["ensemble_forecast_M"].max()) * 1.02
     fig_scatter = go.Figure()
@@ -497,20 +582,29 @@ if perf_df is not None and len(perf_df) > 0:
         hovertemplate="%{text}<br>Actual %{x:.3f}M<br>Forecast %{y:.3f}M<extra></extra>",
     ))
     fig_scatter.update_layout(
-        title="Forecast vs actual",
+        title="Forecast vs actual (live)",
         xaxis_title="Actual (M)", yaxis_title="Forecast (M)",
         height=360, hovermode="closest",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=50, r=20, t=40, b=45),
     )
-    _show(fig_scatter)
-    st.caption("Points on the dashed line are perfect; tight clustering means low bias.")
-else:
-    st.info("Live accuracy accumulates weekly as forecasts age into actuals — check back after the next cycle.")
+    _charts.append((
+        fig_scatter,
+        "Points on the dashed line are perfect; tight clustering means low bias.",
+    ))
+
+if len(_charts) == 2:
+    for _col, (_fig, _cap) in zip(st.columns(2), _charts):
+        with _col:
+            _show(_fig)
+            st.caption(_cap)
+elif _charts:
+    _show(_charts[0][0])
+    st.caption(_charts[0][1])
 
 # ── Interpretability (training-derived; shown regardless of live history) ─────────
 st.divider()
-st.markdown("**How each model reasons** — interpretability for both halves of the ensemble")
+st.markdown("**How each model reasons** — both halves of the ensemble")
 # SHAP gets a wider column: it's a dense beeswarm that needs more horizontal
 # room to stay legible than the SARIMAX bar chart.
 shap_col, coef_col = st.columns([1.3, 1])
@@ -549,19 +643,19 @@ with coef_col:
             margin=dict(l=10, r=20, t=30, b=50),
         )
         _show(fig_coef)
-        st.caption("SARIMAX — weather/holiday effects (inputs scaled 0–1, so bars are comparable). "
-                   "Faded bars are not significant (p ≥ 0.05).")
+        st.caption("SARIMAX weather/holiday effects (inputs scaled 0–1, comparable). "
+                   "Faded = not significant (p ≥ 0.05).")
     else:
         st.info("SARIMAX coefficients generate on the next training run.")
 
 st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — WEATHER AS A PREDICTIVE SIGNAL
+# SECTION 4 — WEATHER AS A PREDICTIVE SIGNAL
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Does Weather Predict Ridership?", anchor=False)
-st.caption("Weather correlates only weakly with daily ridership — recent ridership and the "
-           "weekly calendar carry most of the predictive signal.")
+st.caption("Weather was the starting hypothesis, so it's tested directly — and it correlates only "
+           "weakly. Recent ridership and the weekly calendar carry most of the signal.")
 
 hist_wx = history.dropna(subset=["temp", "precip", "daily_ridership"]).copy()
 ridership_M = hist_wx["daily_ridership"] / 1_000_000
@@ -620,43 +714,27 @@ with precip_col:
     st.caption(f"Pearson r = {_r_p:+.2f} — weak linear correlation")
 
 st.caption(
-    "⚠️ Raw daily correlations — confounded by season and day-of-week (e.g. cold months "
-    "are also winter-schedule months). Shown to illustrate the *marginal* weather signal, not "
-    "a causal effect; the models isolate it by controlling for calendar features."
+    "⚠️ Raw correlations, confounded by season and day-of-week — illustrative, not causal. "
+    "The models isolate weather by controlling for the calendar."
 )
 
 st.divider()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — HOW IT WORKS
-# ══════════════════════════════════════════════════════════════════════════════
-st.subheader("How It Works", anchor=False)
-st.caption("The system behind the numbers — built and evaluated like a production service.")
-arch_col, method_col = st.columns(2)
-
-with arch_col:
-    with st.expander("🏗  Architecture & MLOps"):
-        st.graphviz_chart(_PIPELINE_DOT)
-        st.markdown(
-            "- **Bronze → Silver → Gold** medallion layers in S3 (raw → merged → modelled features)\n"
-            "- **MLflow** registry — both models versioned, gated to Production on holdout MAE\n"
-            "- **GitHub Actions** runs all compute: 4 scheduled pipelines (ingest / train / predict / monitor)\n"
-            "- **Docker** image for reproducible runs · **DVC** snapshots every gold dataset\n"
-            "- **Self-monitoring** — rolling MAE triggers retrains, with a cooldown to prevent thrash\n"
-            "- AWS is storage-only; no servers to maintain"
-        )
-
-with method_col:
-    with st.expander("🔬  Evaluation methodology"):
-        st.markdown(
-            "**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon and "
-            "weekly re-anchor) found SARIMAX and XGBoost statistically indistinguishable — a block "
-            "bootstrap put every pairwise MAE-difference 95% CI across zero. With no reliable winner, "
-            "equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
-            "**Why keep both?** The ensemble's point estimate is best and the weight curve is convex "
-            "(genuine diversification), with no evidence it hurts.\n\n"
-            "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
-            "seasonal false alarms, so it's tracked but informational only.\n\n"
-            "**Benchmarks** (seasonal-naive, persistence) are scored every cycle: a model is only as "
-            "good as what it beats."
-        )
+_n_orig = (walkforward or {}).get("n_origins")
+_eval_limit = (
+    f"- The backtest covers a recent {_n_orig}-round window (about one season), so model "
+    "comparisons carry wide confidence intervals — a deliberate choice to mirror how the "
+    "model serves between retrains"
+    if _n_orig
+    else "- The backtest covers a short recent window (about one season), so model comparisons "
+    "carry wide confidence intervals — a deliberate choice to mirror how the model serves "
+    "between retrains"
+)
+st.markdown("**Known limitations**")
+st.markdown(
+    "- How far ahead the forecast reaches is set by the MTA's ~1–2 week data lag — each "
+    "14-day run fills in the recent weeks the MTA hasn't published yet, then projects ahead\n"
+    + _eval_limit
+    + "\n- The model learns regular patterns, so it can't anticipate one-off shocks — service "
+    "disruptions, special events, or structural breaks — until they appear in the data"
+)

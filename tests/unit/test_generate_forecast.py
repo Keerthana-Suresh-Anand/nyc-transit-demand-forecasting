@@ -1,4 +1,5 @@
-"""Tests for forecast generation: output shape, date range, autoregressive XGBoost loop."""
+"""Tests for forecast generation: output shape, date range, autoregressive XGBoost loop,
+SARIMAX state re-anchoring."""
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.prediction.generate_forecast import FORECAST_DAYS, xgboost_forecast
+from src.prediction.generate_forecast import FORECAST_DAYS, _reanchor_sarimax, xgboost_forecast
+from src.utils.config import SARIMAX_EXOG_COLS
 
 
 def _make_ml_df(periods=30) -> pd.DataFrame:
@@ -118,3 +120,71 @@ class TestXGBoostForecast:
             result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
         assert isinstance(result, np.ndarray)
         assert result.dtype.kind == "f"
+
+
+def _make_sarima_df(periods: int) -> pd.DataFrame:
+    """Minimal gold-SARIMA frame: daily ridership + the exog columns, daily freq."""
+    rng = np.random.default_rng(42)
+    dates = pd.date_range("2025-01-01", periods=periods, freq="D")
+    df = pd.DataFrame({
+        "daily_ridership": 3_000_000 + rng.normal(0, 50_000, periods).cumsum(),
+        "temp": 40 + 10 * np.sin(np.arange(periods) / 14),
+        "precip": rng.uniform(0, 0.3, periods),
+        "snow_lag1": 0.0,
+        "is_holiday": 0,
+    }, index=dates)
+    return df.asfreq("D")
+
+
+def _fit_sarimax(df: pd.DataFrame, scaler):
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
+    y = df["daily_ridership"] / 1_000_000
+    exog = pd.DataFrame(
+        scaler.transform(df[SARIMAX_EXOG_COLS]), index=df.index, columns=SARIMAX_EXOG_COLS
+    )
+    return SARIMAX(y, exog=exog, order=(1, 0, 0),
+                   enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+
+
+class TestReanchorSarimax:
+    """The registered model's state must be advanced over actuals that arrived after
+    training, so the 14-day forecast starts at the latest actual — not the training end."""
+
+    def _setup(self, total_days=74, train_days=60):
+        from sklearn.preprocessing import MinMaxScaler
+        df = _make_sarima_df(total_days)
+        scaler = MinMaxScaler().fit(df[SARIMAX_EXOG_COLS])
+        model = _fit_sarimax(df.iloc[:train_days], scaler)
+        return df, scaler, model
+
+    def test_appends_new_actuals_and_moves_anchor(self):
+        df, scaler, model = self._setup()
+        assert model.fittedvalues.index[-1] == df.index[59]  # stale anchor before fix
+
+        res = _reanchor_sarimax(model, df, scaler)
+        assert res.fittedvalues.index[-1] == df.index[-1]
+        assert res.nobs == len(df)
+
+    def test_forecast_starts_after_latest_actual(self):
+        df, scaler, model = self._setup()
+        res = _reanchor_sarimax(model, df, scaler)
+
+        future_exog = pd.DataFrame(
+            np.zeros((3, len(SARIMAX_EXOG_COLS))),
+            index=pd.date_range(df.index[-1] + pd.Timedelta(days=1), periods=3, freq="D"),
+            columns=SARIMAX_EXOG_COLS,
+        )
+        fc = res.get_forecast(steps=3, exog=future_exog)
+        assert fc.predicted_mean.index[0] == df.index[-1] + pd.Timedelta(days=1)
+
+    def test_noop_when_no_new_actuals(self):
+        df, scaler, model = self._setup(total_days=60, train_days=60)
+        res = _reanchor_sarimax(model, df, scaler)
+        assert res is model  # returned unchanged, nothing appended
+
+    def test_parameters_unchanged_by_reanchor(self):
+        """refit=False must advance state without re-estimating coefficients."""
+        df, scaler, model = self._setup()
+        params_before = model.params.copy()
+        res = _reanchor_sarimax(model, df, scaler)
+        pd.testing.assert_series_equal(params_before, res.params)

@@ -196,6 +196,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **MLflow hosting:** runs on local SQLite synced to S3. A production deployment would use a shared MLflow tracking server backed by PostgreSQL on RDS.
 - **Ensemble weights:** currently 50/50, chosen because the two models are statistically indistinguishable on the current evaluation window. A longer history (more walk-forward origins across multiple seasons) would tighten the confidence intervals and could justify an asymmetric weight.
 - **Historical backfill:** current training data starts from January 2025. Incorporating 2023–2024 MTA ridership would extend the training window to 3 years and improve seasonal pattern estimation.
+- **Docker-based pipeline execution:** GitHub Actions currently installs dependencies directly via `pip`. A more production-grade approach would have workflows pull and run the published Docker image, ensuring the CI environment is identical to any other deployment target.
 
 ---
 

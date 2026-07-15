@@ -40,7 +40,10 @@ jobs:
 
       - name: Run monitoring pipeline
         run: |
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:stable"
+          docker pull "$IMAGE"
+          IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          echo "Running image: $IMAGE_DIGEST"
           docker run --rm \
             -v "$(pwd)/data:/app/data" \
             -e AWS_ACCESS_KEY="$AWS_ACCESS_KEY" \
@@ -48,7 +51,8 @@ jobs:
             -e AWS_BUCKET_NAME="$AWS_BUCKET_NAME" \
             -e AWS_REGION="$AWS_REGION" \
             -e MLFLOW_TRACKING_URI="sqlite:///mlflow.db" \
-            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest \
+            -e PIPELINE_IMAGE_DIGEST="$IMAGE_DIGEST" \
+            "$IMAGE" \
             -m pipelines.run_monitoring
 
       - name: Check retrain flag

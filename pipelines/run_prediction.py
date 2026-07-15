@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from src.prediction import generate_forecast
 from src.transformation import preprocess_ml, preprocess_sarima
-from src.utils.config import S3_PIPELINE_RUNS_PREFIX
+from src.utils.config import PIPELINE_IMAGE_DIGEST, S3_PIPELINE_RUNS_PREFIX
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client, write_s3_json
 
@@ -34,6 +34,7 @@ def run() -> None:
             "start_utc": start.isoformat(),
             "duration_seconds": duration,
             "status": status,
+            "image_digest": PIPELINE_IMAGE_DIGEST,
             "error": error_msg,
         }
         try:

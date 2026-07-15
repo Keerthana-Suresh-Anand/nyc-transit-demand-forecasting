@@ -17,6 +17,13 @@ NY_APP_TOKEN = os.getenv("NY_APP_TOKEN")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 TICKETMASTER_API_KEY = os.getenv("TICKETMASTER_API_KEY")
 
+# Docker image digest of the running pipeline container, injected by the GitHub
+# Actions workflows (docker inspect after pull). Recorded in the pipeline run logs
+# and latest_forecast.json so every output is traceable to the exact code image —
+# alongside the data version (DVC md5) and model versions already recorded.
+# None when running outside the containerized workflows (local runs).
+PIPELINE_IMAGE_DIGEST = os.getenv("PIPELINE_IMAGE_DIGEST")
+
 # MTA API
 MTA_DATASET_ID = "5wq4-mkjj"            # 2025–present
 MTA_HISTORICAL_DATASET_ID = "wujg-7c2s" # 2020–2024

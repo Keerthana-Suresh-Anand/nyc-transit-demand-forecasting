@@ -11,6 +11,7 @@ from src.transformation import preprocess_ml, preprocess_sarima
 from src.utils.config import (
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
+    PIPELINE_IMAGE_DIGEST,
     REPORTS_DIR,
     S3_GOLD_ML_KEY,
     S3_GOLD_SARIMA_KEY,
@@ -88,6 +89,7 @@ def run() -> None:
             "status": status,
             "champion_model": champion,
             "silver_dvc_hash": silver_dvc_hash,
+            "image_digest": PIPELINE_IMAGE_DIGEST,
             "error": error_msg,
         }
         try:

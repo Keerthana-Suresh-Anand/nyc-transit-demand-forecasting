@@ -22,6 +22,7 @@ from src.utils.config import (
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_TRACKING_URI,
+    PIPELINE_IMAGE_DIGEST,
     S3_FORECAST_PREFIX,
     S3_LATEST_FORECAST_KEY,
     S3_WEATHER_FORECAST_PREFIX,
@@ -241,6 +242,7 @@ def run() -> None:
         "xgboost_weight": ENSEMBLE_XGB_WEIGHT,
         "model_versions": _production_versions(),
         "gold_sarima_dvc_md5": _gold_dvc_md5(),
+        "image_digest": PIPELINE_IMAGE_DIGEST,
         "last_actual_date": str(df_sarima.index.max().date()),
         "forecasts": df_forecast.to_dict(orient="records"),
     }

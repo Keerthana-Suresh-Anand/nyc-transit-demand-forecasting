@@ -3,7 +3,12 @@ import sys
 from datetime import date, datetime
 
 from src.ingestion import ingest_events, ingest_mta, ingest_weather, merge_silver
-from src.utils.config import S3_PIPELINE_RUNS_PREFIX, S3_SILVER_KEY, SILVER_LOCAL_PATH
+from src.utils.config import (
+    PIPELINE_IMAGE_DIGEST,
+    S3_PIPELINE_RUNS_PREFIX,
+    S3_SILVER_KEY,
+    SILVER_LOCAL_PATH,
+)
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client, upload_s3_file, write_s3_json
 
@@ -36,6 +41,7 @@ def run() -> None:
             "start_utc": start.isoformat(),
             "duration_seconds": duration,
             "status": status,
+            "image_digest": PIPELINE_IMAGE_DIGEST,
             "error": error_msg,
         }
         try:

@@ -136,7 +136,7 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 A single scrollable page — accessible at the Streamlit Community Cloud URL without any local setup:
 
-> `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`.
+> `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`. The dashboard Docker image installs from the same `requirements.txt`, so the published container is a faithful replica of the live deployment — it isn't used to serve the dashboard today (Streamlit Cloud hosts it for free), but it keeps the app portable to any container platform (Cloud Run, ECS) if that changes.
 
 - **Sidebar** — tech stack, pipeline health badges with last-run dates, and the active ensemble weights
 - **Latest Ridership Forecast** — historical actuals + 14-day ensemble forecast with confidence intervals, individual SARIMAX and XGBoost lines, a shaded "MTA data lag" zone, and a today marker; captioned with the forecast's generation date and window
@@ -196,7 +196,6 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **MLflow hosting:** runs on local SQLite synced to S3. A production deployment would use a shared MLflow tracking server backed by PostgreSQL on RDS.
 - **Ensemble weights:** currently 50/50, chosen because the two models are statistically indistinguishable on the current evaluation window. A longer history (more walk-forward origins across multiple seasons) would tighten the confidence intervals and could justify an asymmetric weight.
 - **Historical backfill:** current training data starts from January 2025. Incorporating 2023–2024 MTA ridership would extend the training window to 3 years and improve seasonal pattern estimation.
-- **Docker-based pipeline execution:** GitHub Actions currently installs dependencies directly via `pip`. A more production-grade approach would have workflows pull and run the published Docker image, ensuring the CI environment is identical to any other deployment target.
 
 ---
 

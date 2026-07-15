@@ -1,10 +1,14 @@
 FROM python:3.12-slim
 WORKDIR /app
 
-COPY pyproject.toml .
+# Install from requirements.txt — the SAME file Streamlit Community Cloud deploys
+# from — so the image and the live deployment share one dependency definition and
+# cannot drift apart. requirements.txt starts with "-e ." (editable install of the
+# local src package), which needs pyproject.toml and src/ present before pip runs.
+COPY pyproject.toml requirements.txt ./
 COPY src/ src/
 
-RUN pip install --no-cache-dir ".[dashboard]"
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY .streamlit/ .streamlit/
 

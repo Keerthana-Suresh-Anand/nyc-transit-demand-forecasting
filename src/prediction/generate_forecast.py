@@ -109,6 +109,36 @@ def load_latest_weather_forecast(s3) -> pd.DataFrame:
     return df
 
 
+def _reanchor_sarimax(model, df_sarima: pd.DataFrame, scaler: MinMaxScaler):
+    """Advance the SARIMAX state over actuals that postdate the model's training sample.
+
+    Training is monthly but ingestion is weekly, so by weeks 2-4 of the month the
+    registered model's filtered state ends up to ~3 weeks behind the latest gold data.
+    `get_forecast` always predicts the steps *after the training sample* — without this
+    re-anchor those values would be mislabeled onto dates computed from the fresh data
+    and would ignore the newest actuals entirely. `.append(refit=False)` runs the
+    Kalman filter forward over the new observations without re-estimating parameters
+    (same mechanism the walk-forward backtest uses at each origin).
+    """
+    last_fit_date = model.fittedvalues.index[-1]
+    new = df_sarima.loc[df_sarima.index > last_fit_date]
+    if new.empty:
+        logger.info(f"SARIMAX state already current (training sample ends {last_fit_date.date()})")
+        return model
+
+    new = new.asfreq("D")
+    new_y = new["daily_ridership"] / 1_000_000
+    new_exog = pd.DataFrame(
+        scaler.transform(new[SARIMAX_EXOG_COLS]), index=new.index, columns=SARIMAX_EXOG_COLS
+    )
+    model = model.append(new_y, exog=new_exog, refit=False)
+    logger.info(
+        f"SARIMAX state re-anchored: {len(new)} new actuals appended "
+        f"({new.index.min().date()} to {new.index.max().date()})"
+    )
+    return model
+
+
 def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date) -> pd.Series:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/Production")
@@ -118,6 +148,10 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_
         logger.warning("Scaler not in MLflow — re-fitting on all available data (next training run will fix this)")
         scaler = MinMaxScaler()
         scaler.fit(df_sarima[SARIMAX_EXOG_COLS])
+
+    # Bring the model state up to the latest actual so the forecast is genuinely
+    # anchored at start_date - 1, not at the (possibly weeks-old) training end.
+    model = _reanchor_sarimax(model, df_sarima, scaler)
 
     import holidays as hol
     us_holidays = hol.US(years=[start_date.year, start_date.year + 1])

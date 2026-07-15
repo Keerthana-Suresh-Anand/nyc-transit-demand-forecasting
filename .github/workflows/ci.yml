@@ -32,7 +32,9 @@ jobs:
 
   build-and-push:
     needs: lint-and-test
-    if: github.event_name != 'pull_request'
+    # Publish only from main: without the ref check, a manual workflow_dispatch from
+    # a feature branch would push :latest/:stable images built from unmerged code.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -19,6 +19,8 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Install boto3
         run: pip install boto3

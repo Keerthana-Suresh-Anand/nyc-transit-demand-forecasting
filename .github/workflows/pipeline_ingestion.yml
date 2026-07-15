@@ -46,7 +46,12 @@ jobs:
 
       - name: Run ingestion pipeline
         run: |
-          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:stable"
+          docker pull "$IMAGE"
+          # Resolve the immutable digest of what we just pulled so the run log can
+          # record exactly which image executed (tags move; digests don't).
+          IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE")
+          echo "Running image: $IMAGE_DIGEST"
           docker run --rm \
             -v "$(pwd)/data:/app/data" \
             -e AWS_ACCESS_KEY="$AWS_ACCESS_KEY" \
@@ -56,7 +61,8 @@ jobs:
             -e NY_APP_TOKEN="$NY_APP_TOKEN" \
             -e WEATHER_API_KEY="$WEATHER_API_KEY" \
             -e TICKETMASTER_API_KEY="$TICKETMASTER_API_KEY" \
-            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest \
+            -e PIPELINE_IMAGE_DIGEST="$IMAGE_DIGEST" \
+            "$IMAGE" \
             -m pipelines.run_ingestion
 
       - name: Snapshot silver data with DVC

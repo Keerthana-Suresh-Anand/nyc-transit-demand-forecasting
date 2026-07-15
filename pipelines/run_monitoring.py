@@ -3,7 +3,11 @@ import sys
 from datetime import date, datetime
 
 from src.monitoring import monitor_performance
-from src.utils.config import S3_PIPELINE_RUNS_PREFIX, S3_TRAINING_BASELINE_KEY
+from src.utils.config import (
+    PIPELINE_IMAGE_DIGEST,
+    S3_PIPELINE_RUNS_PREFIX,
+    S3_TRAINING_BASELINE_KEY,
+)
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client, read_s3_json, write_s3_json
 
@@ -43,6 +47,7 @@ def run() -> None:
             "duration_seconds": duration,
             "status": status,
             "retrain_recommended": report.get("retrain_recommended") if report else None,
+            "image_digest": PIPELINE_IMAGE_DIGEST,
             "error": error_msg,
         }
         try:

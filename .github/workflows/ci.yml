@@ -39,7 +39,9 @@ jobs:
 
   build-and-push:
     needs: lint-and-test
-    if: github.event_name != 'pull_request'
+    # Publish only from main: without the ref check, a manual workflow_dispatch from
+    # a feature branch would push :latest/:stable images built from unmerged code.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +55,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Tag semantics:
+      #   :<sha>    immutable, one per commit — the reproducibility anchor
+      #   :latest   newest build (moving pointer, informational)
+      #   :stable   what the scheduled pipelines actually run — promoted here only
+      #             after lint + unit tests pass. Rollback: retag an older sha as
+      #             stable (docker buildx imagetools create -t ...:stable ...:<sha>)
+      #             without touching latest or waiting for a new build.
       - name: Build and push pipeline image
         uses: docker/build-push-action@v5
         with:
@@ -61,6 +70,7 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:stable
             ${{ secrets.DOCKERHUB_USERNAME }}/nyc-transit-pipeline:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -5,6 +5,11 @@ on:
     - cron: "0 8 * * *"   # Daily 08:00 UTC
   workflow_dispatch: {}
 
+# One run at a time, matching the other pipelines — every pipeline is a mutex.
+concurrency:
+  group: monitoring
+  cancel-in-progress: false
+
 env:
   AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
   AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}

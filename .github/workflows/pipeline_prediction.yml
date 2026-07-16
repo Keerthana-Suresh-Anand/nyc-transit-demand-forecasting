@@ -3,6 +3,13 @@ name: Pipeline — Prediction
 on:
   workflow_dispatch: {}
 
+# One run at a time: ingestion AND training both dispatch this workflow, and on the
+# first Wednesday of the month those can land close together. The second run queues
+# and simply regenerates the same forecast from the same data.
+concurrency:
+  group: prediction
+  cancel-in-progress: false
+
 env:
   AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
   AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}

@@ -136,7 +136,7 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 A single scrollable page — accessible at the Streamlit Community Cloud URL without any local setup:
 
-> `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`.
+> `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`. The dashboard Docker image installs from the same `requirements.txt`, so the published container is a faithful replica of the live deployment — it isn't used to serve the dashboard today (Streamlit Cloud hosts it for free), but it keeps the app portable to any container platform (Cloud Run, ECS) if that changes.
 
 - **Sidebar** — tech stack, pipeline health badges with last-run dates, and the active ensemble weights
 - **Latest Ridership Forecast** — historical actuals + 14-day ensemble forecast with confidence intervals, individual SARIMAX and XGBoost lines, a shaded "MTA data lag" zone, and a today marker; captioned with the forecast's generation date and window

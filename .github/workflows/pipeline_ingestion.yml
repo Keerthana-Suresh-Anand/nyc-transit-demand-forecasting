@@ -5,6 +5,13 @@ on:
     - cron: "0 21 * * 3"   # Wednesdays 21:00 UTC / 5pm ET
   workflow_dispatch: {}
 
+# One run at a time: a manual dispatch overlapping the weekly cron would interleave
+# two watermark read->fetch->write cycles. Queue, never cancel — a killed run could
+# leave bronze/watermark written but silver not yet updated.
+concurrency:
+  group: ingestion
+  cancel-in-progress: false
+
 env:
   AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
   AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_KEY }}

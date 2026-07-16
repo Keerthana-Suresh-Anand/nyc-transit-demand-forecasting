@@ -113,7 +113,7 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 | Pipeline | Trigger | What it does |
 |----------|---------|-------------|
-| Ingestion | Every Wednesday 14:00 UTC | Fetches new MTA + weather + events data, updates silver on S3 |
+| Ingestion | Every Wednesday 21:00 UTC | Fetches new MTA + weather + events data, updates silver on S3 |
 | Training | First Wednesday of month | Retrains both models, selects champion, uploads gold + MLflow to S3 |
 | Prediction | After ingestion or training | Generates 14-day ensemble forecast, writes to S3 |
 | Monitoring | Daily 08:00 UTC | Checks forecast accuracy + PSI drift, triggers retraining if needed |
@@ -123,12 +123,14 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 ## Monitoring and drift detection
 
-**PSI (Population Stability Index)** is computed on the last 14 days of weather features vs a 90-day reference window:
+**PSI (Population Stability Index)** is computed daily on the last 14 days of weather features vs a 90-day reference window and written to the drift report (visible on the dashboard):
 - PSI < 0.10 → stable
-- PSI 0.10–0.25 → moderate drift (logged, no action)
-- PSI > 0.25 → critical drift → retrain flag written to S3 → training pipeline triggered
+- PSI 0.10–0.25 → moderate drift
+- PSI > 0.25 → critical drift
 
-**Rolling MAE** is compared against training-time MAE. If rolling MAE exceeds 1.5× the training MAE, a retrain is also triggered.
+PSI is **informational only — it never triggers retraining**. Weather features drift with the seasons, so PSI fires false alarms every spring and fall; retraining on those would churn models without improving accuracy.
+
+**Rolling MAE is the sole retrain trigger:** if rolling forecast MAE exceeds 1.5× the training-time MAE, a retrain flag is written and the training pipeline is dispatched — subject to a 7-day cooldown circuit breaker so persistent degradation can't re-dispatch training on every daily run.
 
 ---
 

@@ -60,10 +60,19 @@ def scale_exog(
 def find_best_params(train_y: pd.Series, train_exog: pd.DataFrame) -> tuple:
     logger.info("Starting Auto-ARIMA stepwise search...")
     auto_model = pm.auto_arima(
-        train_y, exog=train_exog,
-        start_p=0, start_q=0, max_p=3, max_q=3,
-        m=7, seasonal=True, start_P=0, D=1,
-        error_action="ignore", suppress_warnings=True, stepwise=True,
+        train_y,
+        exog=train_exog,
+        start_p=0,
+        start_q=0,
+        max_p=3,
+        max_q=3,
+        m=7,
+        seasonal=True,
+        start_P=0,
+        D=1,
+        error_action="ignore",
+        suppress_warnings=True,
+        stepwise=True,
     )
     logger.info(f"Best model found: SARIMAX{auto_model.order}x{auto_model.seasonal_order}")
     return auto_model.order, auto_model.seasonal_order
@@ -84,11 +93,15 @@ def _load_cached_order(s3) -> tuple[tuple, tuple, date] | None:
 
 def _save_cached_order(s3, order: tuple, seasonal_order: tuple) -> None:
     try:
-        write_s3_json(s3, {
-            "order": list(order),
-            "seasonal_order": list(seasonal_order),
-            "search_date": str(date.today()),
-        }, S3_SARIMAX_ORDER_KEY)
+        write_s3_json(
+            s3,
+            {
+                "order": list(order),
+                "seasonal_order": list(seasonal_order),
+                "search_date": str(date.today()),
+            },
+            S3_SARIMAX_ORDER_KEY,
+        )
         logger.info(f"Pinned SARIMAX order to S3: {order}x{seasonal_order}")
     except Exception as e:
         logger.warning(f"Could not persist SARIMAX order to S3: {e}")
@@ -109,7 +122,9 @@ def resolve_order(s3, train_y: pd.Series, train_exog: pd.DataFrame) -> tuple[tup
                 f"(searched {searched}, {age}d ago < {SARIMAX_RESEARCH_DAYS}d)"
             )
             return order, seasonal_order, "cached"
-        logger.info(f"Cached SARIMAX order is {age}d old (≥ {SARIMAX_RESEARCH_DAYS}d) — re-searching")
+        logger.info(
+            f"Cached SARIMAX order is {age}d old (≥ {SARIMAX_RESEARCH_DAYS}d) — re-searching"
+        )
 
     order, seasonal_order = find_best_params(train_y, train_exog)
     _save_cached_order(s3, order, seasonal_order)
@@ -139,22 +154,27 @@ def run() -> None:
         mlflow.set_tag("dataset_row_count", len(y))
         mlflow.set_tag("project_phase", "champion_selection")
         mlflow.set_tag("run_date", str(date.today()))
-        mlflow.log_params({
-            "order": str(best_order),
-            "seasonal_order": str(best_seasonal),
-            "exog_cols": str(EXOG_COLS),
-            "test_days": TEST_DAYS,
-            "search_method": order_source,
-        })
+        mlflow.log_params(
+            {
+                "order": str(best_order),
+                "seasonal_order": str(best_seasonal),
+                "exog_cols": str(EXOG_COLS),
+                "test_days": TEST_DAYS,
+                "search_method": order_source,
+            }
+        )
 
         # ── Holdout evaluation: fit on the training split only and score the
         #    untouched last TEST_DAYS so the logged metrics reflect genuine
         #    out-of-sample performance.
         logger.info("Fitting evaluation SARIMAX on training split for holdout metrics")
         eval_model = SARIMAX(
-            train_y, exog=train_exog,
-            order=best_order, seasonal_order=best_seasonal,
-            enforce_stationarity=False, enforce_invertibility=False,
+            train_y,
+            exog=train_exog,
+            order=best_order,
+            seasonal_order=best_seasonal,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
         ).fit(disp=False)
 
         forecast = eval_model.get_forecast(steps=len(test_y), exog=test_exog)
@@ -168,11 +188,18 @@ def run() -> None:
         logger.info(f"Holdout metrics — MAE: {mae:.4f}M  RMSE: {rmse:.4f}M  MAPE: {mape:.2%}")
 
         import matplotlib.pyplot as plt
+
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.plot(test_y.index, test_y, label="Actual", color="steelblue")
         ax.plot(test_y.index, y_pred, label="SARIMAX forecast", linestyle="--", color="darkorange")
-        ax.fill_between(test_y.index, conf_int.iloc[:, 0], conf_int.iloc[:, 1],
-                        color="gray", alpha=0.25, label="95% CI")
+        ax.fill_between(
+            test_y.index,
+            conf_int.iloc[:, 0],
+            conf_int.iloc[:, 1],
+            color="gray",
+            alpha=0.25,
+            label="95% CI",
+        )
         ax.set_title(f"SARIMAX Champion | MAE: {mae:.3f}M | MAPE: {mape:.2%}")
         ax.legend()
         plot_path = REPORTS_DIR / "sarimax_training_forecast.png"
@@ -183,11 +210,13 @@ def run() -> None:
         # Per-day holdout predictions — the champion gate reads this to run the
         # ensemble weight analysis on a common, out-of-sample window for both
         # families (it cannot re-forecast the full-data production model honestly).
-        holdout_df = pd.DataFrame({
-            "date": test_y.index.strftime("%Y-%m-%d"),
-            "y_true": test_y.to_numpy(),
-            "y_pred": np.asarray(y_pred),
-        })
+        holdout_df = pd.DataFrame(
+            {
+                "date": test_y.index.strftime("%Y-%m-%d"),
+                "y_true": test_y.to_numpy(),
+                "y_pred": np.asarray(y_pred),
+            }
+        )
         holdout_path = REPORTS_DIR / "holdout_predictions.json"
         holdout_df.to_json(holdout_path, orient="records")
         mlflow.log_artifact(str(holdout_path))
@@ -203,9 +232,12 @@ def run() -> None:
             prod_scaler.fit_transform(exog), index=exog.index, columns=EXOG_COLS
         )
         prod_model = SARIMAX(
-            y, exog=full_exog,
-            order=best_order, seasonal_order=best_seasonal,
-            enforce_stationarity=False, enforce_invertibility=False,
+            y,
+            exog=full_exog,
+            order=best_order,
+            seasonal_order=best_seasonal,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
         ).fit(disp=False)
         if getattr(prod_model, "mle_retvals", {}).get("converged") is False:
             logger.warning("Production SARIMAX did NOT converge — check exog scaling / order")
@@ -227,20 +259,26 @@ def run() -> None:
                 "coefficient": float(prod_model.params[col]),
                 "p_value": float(prod_model.pvalues[col]),
             }
-            for col in EXOG_COLS if col in prod_model.params.index
+            for col in EXOG_COLS
+            if col in prod_model.params.index
         ]
         coef_path = REPORTS_DIR / "sarimax_coefficients.json"
         with open(coef_path, "w") as f:
-            json.dump({
-                "exog_coefficients": coef_records,
-                "note": "Coefficients on MinMax-scaled exogenous features; magnitudes are comparable.",
-                "run_date": str(date.today()),
-            }, f, indent=2)
+            json.dump(
+                {
+                    "exog_coefficients": coef_records,
+                    "note": "Coefficients on MinMax-scaled exogenous features; magnitudes are comparable.",
+                    "run_date": str(date.today()),
+                },
+                f,
+                indent=2,
+            )
         mlflow.log_artifact(str(coef_path))
         logger.info(f"SARIMAX exog coefficients written: {coef_records}")
 
         mlflow.statsmodels.log_model(
-            prod_model, "sarimax_model",
+            prod_model,
+            "sarimax_model",
             registered_model_name=SARIMAX_MODEL_NAME,
         )
         logger.info(f"Model registered: {SARIMAX_MODEL_NAME} (run_id={run.info.run_id})")

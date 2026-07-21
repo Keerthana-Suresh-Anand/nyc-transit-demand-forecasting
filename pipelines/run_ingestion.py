@@ -3,8 +3,13 @@ import sys
 from datetime import date, datetime
 
 from src.ingestion import ingest_events, ingest_mta, ingest_weather, merge_silver
+from src.transformation import preprocess_ml, preprocess_sarima
 from src.utils.config import (
+    GOLD_ML_LOCAL_PATH,
+    GOLD_SARIMA_LOCAL_PATH,
     PIPELINE_IMAGE_DIGEST,
+    S3_GOLD_ML_KEY,
+    S3_GOLD_SARIMA_KEY,
     S3_PIPELINE_RUNS_PREFIX,
     S3_SILVER_KEY,
     SILVER_LOCAL_PATH,
@@ -26,8 +31,19 @@ def run() -> None:
         ingest_weather.run()
         ingest_events.run()
         merge_silver.run()
+
+        # Materialize the gold layer here — gold is a pure function of silver, so it
+        # belongs where the data enters (weekly), not in the model pipelines. Training
+        # and prediction are pure consumers of S3 gold. This keeps the dashboard's
+        # actuals line and monitoring's rolling MAE fresh every week instead of only
+        # when the monthly training run happens to rebuild gold.
+        preprocess_sarima.run()
+        preprocess_ml.run()
+
         s3 = get_s3_client()
         upload_s3_file(s3, SILVER_LOCAL_PATH, S3_SILVER_KEY)
+        upload_s3_file(s3, GOLD_SARIMA_LOCAL_PATH, S3_GOLD_SARIMA_KEY)
+        upload_s3_file(s3, GOLD_ML_LOCAL_PATH, S3_GOLD_ML_KEY)
         logger.info("=== Ingestion Pipeline COMPLETE ===")
     except Exception as e:
         status = "failure"

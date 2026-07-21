@@ -31,14 +31,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Install DVC
-        run: pip install "dvc[s3]>=3.0"
-
-      - name: Pull silver data via DVC
+      - name: Download gold data from S3
         run: |
-          mkdir -p data/silver data/gold mlruns
-          dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
-          dvc pull data/silver/mta_weather_merged.parquet
+          mkdir -p data/gold mlruns
+          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_sarima.parquet \
+            data/gold/mta_sarima.parquet
+          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_ml.parquet \
+            data/gold/mta_ml.parquet
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}

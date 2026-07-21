@@ -1,4 +1,8 @@
-"""Pipeline: preprocess data, train SARIMAX + XGBoost, evaluate and select champion."""
+"""Pipeline: train SARIMAX + XGBoost on the gold layer, evaluate and select champion.
+
+Gold is built by the ingestion pipeline and downloaded from S3 by the workflow — this
+pipeline is a pure consumer of the gold layer, it does not rebuild it.
+"""
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -7,14 +11,9 @@ import yaml
 
 from src.evaluation import evaluate_models, walk_forward
 from src.training import train_sarimax, train_xgboost
-from src.transformation import preprocess_ml, preprocess_sarima
 from src.utils.config import (
-    GOLD_ML_LOCAL_PATH,
-    GOLD_SARIMA_LOCAL_PATH,
     PIPELINE_IMAGE_DIGEST,
     REPORTS_DIR,
-    S3_GOLD_ML_KEY,
-    S3_GOLD_SARIMA_KEY,
     S3_PIPELINE_RUNS_PREFIX,
     S3_RETRAIN_FLAG_KEY,
     S3_SARIMAX_COEF_KEY,
@@ -27,8 +26,11 @@ from src.utils.s3_helpers import delete_s3_key, get_s3_client, upload_s3_file, w
 logger = get_logger(__name__)
 
 
-def _read_silver_dvc_hash() -> str | None:
-    dvc_file = Path("data/silver/mta_weather_merged.parquet.dvc")
+def _read_gold_dvc_hash() -> str | None:
+    """md5 of the gold SARIMA parquet from its DVC pointer, tying the trained models to
+    the exact gold version they saw. Gold is snapshotted to DVC by the ingestion pipeline.
+    """
+    dvc_file = Path("data/gold/mta_sarima.parquet.dvc")
     try:
         with open(dvc_file) as f:
             return yaml.safe_load(f)["outs"][0]["md5"]
@@ -42,20 +44,16 @@ def run() -> None:
     error_msg = None
     champion = None
 
-    silver_dvc_hash = _read_silver_dvc_hash()
-    if silver_dvc_hash:
-        logger.info(f"Silver DVC hash: {silver_dvc_hash}")
+    gold_dvc_hash = _read_gold_dvc_hash()
+    if gold_dvc_hash:
+        logger.info(f"Gold SARIMA DVC hash: {gold_dvc_hash}")
 
     try:
         logger.info("=== Training Pipeline START ===")
-        preprocess_sarima.run()
-        preprocess_ml.run()
         train_sarimax.run()
         train_xgboost.run()
         champion = evaluate_models.run()
         s3 = get_s3_client()
-        upload_s3_file(s3, GOLD_SARIMA_LOCAL_PATH, S3_GOLD_SARIMA_KEY)
-        upload_s3_file(s3, GOLD_ML_LOCAL_PATH, S3_GOLD_ML_KEY)
         shap_path = REPORTS_DIR / "xgboost_shap_summary.png"
         if shap_path.exists():
             upload_s3_file(s3, shap_path, S3_SHAP_KEY)
@@ -88,7 +86,7 @@ def run() -> None:
             "duration_seconds": duration,
             "status": status,
             "champion_model": champion,
-            "silver_dvc_hash": silver_dvc_hash,
+            "gold_dvc_hash": gold_dvc_hash,
             "image_digest": PIPELINE_IMAGE_DIGEST,
             "error": error_msg,
         }

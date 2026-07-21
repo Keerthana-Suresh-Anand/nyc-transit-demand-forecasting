@@ -72,15 +72,19 @@ jobs:
             "$IMAGE" \
             -m pipelines.run_ingestion
 
-      - name: Snapshot silver data with DVC
+      - name: Snapshot silver and gold data with DVC
         run: |
           dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
           dvc add data/silver/mta_weather_merged.parquet
+          dvc add data/gold/mta_sarima.parquet
+          dvc add data/gold/mta_ml.parquet
           dvc push
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
-          git add data/silver/mta_weather_merged.parquet.dvc
-          git diff --cached --quiet || git commit -m "dvc: update silver parquet [skip ci]"
+          git add data/silver/mta_weather_merged.parquet.dvc \
+                  data/gold/mta_sarima.parquet.dvc \
+                  data/gold/mta_ml.parquet.dvc
+          git diff --cached --quiet || git commit -m "dvc: update silver + gold parquets [skip ci]"
           git push
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}

@@ -1,9 +1,12 @@
-"""Pipeline: preprocess latest data and generate 14-day ensemble forecast."""
+"""Pipeline: generate a 14-day ensemble forecast from the gold layer.
+
+Gold is built by the ingestion pipeline and downloaded from S3 by the workflow — this
+pipeline is a pure consumer of the gold layer, it does not rebuild it.
+"""
 import sys
 from datetime import date, datetime
 
 from src.prediction import generate_forecast
-from src.transformation import preprocess_ml, preprocess_sarima
 from src.utils.config import PIPELINE_IMAGE_DIGEST, S3_PIPELINE_RUNS_PREFIX
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client, write_s3_json
@@ -18,8 +21,6 @@ def run() -> None:
 
     try:
         logger.info("=== Prediction Pipeline START ===")
-        preprocess_sarima.run()
-        preprocess_ml.run()
         generate_forecast.run()
         logger.info("=== Prediction Pipeline COMPLETE ===")
     except Exception as e:

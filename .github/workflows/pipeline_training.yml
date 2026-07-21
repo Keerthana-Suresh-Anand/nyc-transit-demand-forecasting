@@ -46,15 +46,13 @@ jobs:
     if: needs.guard.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      # Only actions:write (to dispatch prediction). No contents:write — training no
+      # longer commits DVC pointers; gold is snapshotted by the ingestion pipeline.
       actions: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-
-      - name: Install DVC
-        run: pip install "dvc[s3]>=3.0"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -62,11 +60,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Download data and MLflow state from S3
+      - name: Download gold data and MLflow state from S3
         run: |
-          mkdir -p data/silver data/gold mlruns
-          aws s3 cp s3://$AWS_BUCKET_NAME/silver/mta_weather_merged.parquet \
-            data/silver/mta_weather_merged.parquet
+          mkdir -p data/gold mlruns
+          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_sarima.parquet \
+            data/gold/mta_sarima.parquet
+          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_ml.parquet \
+            data/gold/mta_ml.parquet
           aws s3 cp s3://$AWS_BUCKET_NAME/mlflow/mlflow.db \
             mlflow.db || echo "No existing mlflow.db — starting fresh"
           aws s3 sync s3://$AWS_BUCKET_NAME/mlflow/mlruns/ mlruns/ || echo "No existing mlruns"
@@ -109,22 +109,6 @@ jobs:
             -e PIPELINE_IMAGE_DIGEST="$IMAGE_DIGEST" \
             "$IMAGE" \
             -m pipelines.run_training
-
-      - name: Snapshot gold data with DVC
-        run: |
-          dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
-          dvc add data/gold/mta_sarima.parquet
-          dvc add data/gold/mta_ml.parquet
-          dvc push
-          git config user.email "github-actions@github.com"
-          git config user.name "GitHub Actions"
-          git add data/gold/mta_sarima.parquet.dvc data/gold/mta_ml.parquet.dvc
-          git diff --cached --quiet || git commit -m "dvc: update gold parquets [skip ci]"
-          git push
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Backup MLflow DB before overwrite
         if: always()

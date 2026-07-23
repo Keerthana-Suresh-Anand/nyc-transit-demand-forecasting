@@ -6,7 +6,8 @@ Post-hoc performance monitor.
 3. Computes rolling MAE / MAPE and compares against training-time MAE.
 4. Runs PSI on the last 14 days of weather features vs 90-day reference window.
 5. Writes a structured JSON report to S3.
-6. If drift is critical OR rolling MAE exceeds threshold, writes retrain_flag.json.
+6. If rolling MAE exceeds the retrain threshold (and not within the cooldown),
+   writes retrain_flag.json. PSI is informational only and never triggers a retrain.
 """
 import io
 from datetime import date

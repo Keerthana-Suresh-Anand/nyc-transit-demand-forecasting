@@ -34,9 +34,8 @@ def run() -> None:
 
         # Materialize the gold layer here — gold is a pure function of silver, so it
         # belongs where the data enters (weekly), not in the model pipelines. Training
-        # and prediction are pure consumers of S3 gold. This keeps the dashboard's
-        # actuals line and monitoring's rolling MAE fresh every week instead of only
-        # when the monthly training run happens to rebuild gold.
+        # and prediction consume S3 gold, so building it on every ingestion keeps the
+        # dashboard actuals and monitoring's rolling MAE fresh weekly.
         preprocess_sarima.run()
         preprocess_ml.run()
 

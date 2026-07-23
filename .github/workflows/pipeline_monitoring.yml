@@ -27,9 +27,6 @@ jobs:
         with:
           ref: main
 
-      - name: Install boto3
-        run: pip install boto3
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -64,25 +61,21 @@ jobs:
 
       - name: Check retrain flag
         id: retrain
+        # head-object checks existence via metadata only (no download) and exits
+        # non-zero when the key is absent. The env block is needed because the aws
+        # CLI expects AWS_ACCESS_KEY_ID/SECRET, not the AWS_ACCESS_KEY/SECRET names.
         run: |
-          python - <<'EOF'
-          import boto3, json, os, sys
-          s3 = boto3.client(
-              "s3",
-              aws_access_key_id=os.environ["AWS_ACCESS_KEY"],
-              aws_secret_access_key=os.environ["AWS_SECRET_KEY"],
-              region_name=os.environ["AWS_REGION"],
-          )
-          try:
-              obj = s3.get_object(Bucket=os.environ["AWS_BUCKET_NAME"], Key="monitoring/retrain_flag.json")
-              flag = json.loads(obj["Body"].read())
-              print(f"retrain_needed=true")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                  f.write("retrain_needed=true\n")
-          except Exception:
-              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                  f.write("retrain_needed=false\n")
-          EOF
+          if aws s3api head-object \
+               --bucket "$AWS_BUCKET_NAME" \
+               --key monitoring/retrain_flag.json >/dev/null 2>&1; then
+            echo "retrain_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "retrain_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Trigger training pipeline (drift detected)
         if: steps.retrain.outputs.retrain_needed == 'true'

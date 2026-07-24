@@ -87,7 +87,7 @@ def run() -> None:
         # Early-stop on a validation slice carved from the TRAIN tail so the
         # reporting holdout (X_test) stays untouched. The tree count must not be
         # chosen by watching the same window the holdout MAE is computed on, since
-        # the champion gate now trusts that logged MAE for promotion decisions.
+        # the champion gate trusts that logged MAE for promotion decisions.
         X_inner, X_val = X_train.iloc[:-TEST_DAYS], X_train.iloc[-TEST_DAYS:]
         y_inner, y_val = y_train.iloc[:-TEST_DAYS], y_train.iloc[-TEST_DAYS:]
 

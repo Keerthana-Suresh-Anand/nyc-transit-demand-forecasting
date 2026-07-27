@@ -60,13 +60,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Download gold data and MLflow state from S3
+      - name: Install DVC
+        run: pip install "dvc[s3]>=3.0"
+
+      - name: Pull gold data via DVC and MLflow state from S3
         run: |
           mkdir -p data/gold mlruns
-          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_sarima.parquet \
-            data/gold/mta_sarima.parquet
-          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_ml.parquet \
-            data/gold/mta_ml.parquet
+          # Route the versioned datasets through DVC so training reads exactly the
+          # gold version pinned by the committed .dvc pointers — the model then
+          # provably matches the data version it records, rather than reading a
+          # working copy that could drift from the pointer. The committed .dvc/config
+          # url uses a ${AWS_BUCKET_NAME} placeholder DVC does not expand, so set the
+          # concrete remote url at runtime (same as the ingestion snapshot step).
+          dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
+          dvc pull data/gold/mta_sarima.parquet data/gold/mta_ml.parquet
+          # MLflow state is operational, not a versioned dataset — plain S3.
           aws s3 cp s3://$AWS_BUCKET_NAME/mlflow/mlflow.db \
             mlflow.db || echo "No existing mlflow.db — starting fresh"
           aws s3 sync s3://$AWS_BUCKET_NAME/mlflow/mlruns/ mlruns/ || echo "No existing mlruns"

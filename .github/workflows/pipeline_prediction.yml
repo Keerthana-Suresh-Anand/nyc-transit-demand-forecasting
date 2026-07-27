@@ -31,13 +31,19 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Download gold data from S3
+      - name: Install DVC
+        run: pip install "dvc[s3]>=3.0"
+
+      - name: Pull gold data via DVC
         run: |
           mkdir -p data/gold mlruns
-          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_sarima.parquet \
-            data/gold/mta_sarima.parquet
-          aws s3 cp s3://$AWS_BUCKET_NAME/gold/mta_ml.parquet \
-            data/gold/mta_ml.parquet
+          # Pull the exact gold version pinned by the committed .dvc pointers so the
+          # forecast (and the gold_sarima_dvc_md5 it records in latest_forecast.json)
+          # provably matches the data it was generated from. The committed .dvc/config
+          # url uses a ${AWS_BUCKET_NAME} placeholder DVC does not expand, so set the
+          # concrete remote url at runtime.
+          dvc remote modify --local s3remote url s3://$AWS_BUCKET_NAME/dvc-cache
+          dvc pull data/gold/mta_sarima.parquet data/gold/mta_ml.parquet
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}

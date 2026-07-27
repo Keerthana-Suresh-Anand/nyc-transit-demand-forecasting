@@ -50,8 +50,8 @@ def run() -> None:
 
     try:
         logger.info("=== Training Pipeline START ===")
-        train_sarimax.run()
-        train_xgboost.run()
+        train_sarimax.run(gold_dvc_hash=gold_dvc_hash)
+        train_xgboost.run(gold_dvc_hash=gold_dvc_hash)
         champion = evaluate_models.run()
         s3 = get_s3_client()
         shap_path = REPORTS_DIR / "xgboost_shap_summary.png"

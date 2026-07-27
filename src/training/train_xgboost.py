@@ -41,7 +41,7 @@ def get_feature_cols(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c != TARGET_COL]
 
 
-def run() -> None:
+def run(gold_dvc_hash: str | None = None) -> None:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -80,6 +80,10 @@ def run() -> None:
         mlflow.set_tag("dataset_row_count", len(df))
         mlflow.set_tag("project_phase", "champion_selection")
         mlflow.set_tag("run_date", str(date.today()))
+        # Data lineage: pin this model version to the exact gold DVC hash it trained
+        # on, so a model can be traced back to its data version from MLflow alone.
+        if gold_dvc_hash:
+            mlflow.set_tag("gold_dvc_hash", gold_dvc_hash)
         mlflow.log_params({**{k: v for k, v in XGB_PARAMS.items()}, "features": str(feature_cols)})
         mlflow.log_metrics({f"cv_fold_{i+1}_mae": m for i, m in enumerate(cv_maes)})
         mlflow.log_metric("cv_mean_mae", np.mean(cv_maes))

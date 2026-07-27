@@ -131,7 +131,7 @@ def resolve_order(s3, train_y: pd.Series, train_exog: pd.DataFrame) -> tuple[tup
     return order, seasonal_order, "auto_arima_stepwise"
 
 
-def run() -> None:
+def run(gold_dvc_hash: str | None = None) -> None:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -154,6 +154,10 @@ def run() -> None:
         mlflow.set_tag("dataset_row_count", len(y))
         mlflow.set_tag("project_phase", "champion_selection")
         mlflow.set_tag("run_date", str(date.today()))
+        # Data lineage: pin this model version to the exact gold DVC hash it trained
+        # on, so a model can be traced back to its data version from MLflow alone.
+        if gold_dvc_hash:
+            mlflow.set_tag("gold_dvc_hash", gold_dvc_hash)
         mlflow.log_params(
             {
                 "order": str(best_order),

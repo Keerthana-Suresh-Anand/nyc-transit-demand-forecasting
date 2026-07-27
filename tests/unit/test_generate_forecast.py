@@ -111,6 +111,33 @@ class TestXGBoostForecast:
         # Step 2's lag1 must equal step 1's prediction
         assert predictions_seen[1] == pytest.approx(step1_pred)
 
+    def test_ridership_lags_slide_forward_across_horizon(self):
+        """Regression: ridership lags must advance one day per forecast step, not stay
+        frozen at the last-known window. A frozen lag-14 (identical value fed to all 14
+        days) was a train/serve skew bug — the holdout/backtest slide these features, so
+        production must too."""
+        df_ml = _make_ml_df(periods=30)
+        weather = _make_weather_fcst()
+        lag14_seen: list[float] = []
+
+        def capture(X):
+            lag14_seen.append(float(X.iloc[0]["ridership_lag14"]))
+            return np.array([3.1])
+
+        mock_model = MagicMock()
+        mock_model.predict.side_effect = capture
+        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
+            mock_mlflow.set_tracking_uri.return_value = None
+            mock_mlflow.xgboost.load_model.return_value = mock_model
+            xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
+
+        assert len(lag14_seen) == FORECAST_DAYS
+        assert lag14_seen == sorted(lag14_seen)        # slides forward (monotone)
+        assert len(set(lag14_seen)) == FORECAST_DAYS   # all distinct — not frozen
+        # Step 0's lag-14 is the actual ridership 14 days before the first forecast day.
+        expected_first = float(df_ml["daily_ridership"].iloc[-14] / 1_000_000)
+        assert lag14_seen[0] == pytest.approx(expected_first)
+
     def test_output_is_numpy_array_of_floats(self):
         df_ml = _make_ml_df()
         weather = _make_weather_fcst()

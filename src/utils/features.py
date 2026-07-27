@@ -31,43 +31,47 @@ def cast_categoricals(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def iterative_xgb_predict(model, df: pd.DataFrame, start_idx: int, n_steps: int) -> np.ndarray:
-    """Forecast ``n_steps`` days iteratively, propagating predicted ridership into
-    the lag/rolling features — the same way ``generate_forecast`` serves production.
+    """Forecast ``n_steps`` days iteratively, feeding each predicted ridership back into
+    the lag/rolling features.
 
-    Calendar and weather features use the actual values at each target row (known
-    at forecast time), but ridership lags and rolling stats are filled with the
-    model's own prior predictions rather than the true future values. This makes a
-    holdout score reflect real 14-day inference instead of a one-shot fit that
-    peeks at true lags. ``df`` must hold ``daily_ridership`` plus every feature
-    column; predictions are returned in millions, matching the training target.
+    This is the single feature-construction path shared by the training holdout, the
+    walk-forward backtest, and production serving (``generate_forecast``), so all three
+    build features identically — no train/serve skew.
+
+    Ridership-derived features (lags, 14-day mean, 7-day std) are computed from a running
+    ``series`` of known-then-predicted ridership that grows one value per step. It never
+    reads ``daily_ridership`` at or after ``start_idx``, so the same code works whether the
+    target rows carry actuals (holdout) or are future placeholders (production). Calendar
+    and weather features are read from each target row (known at forecast time). ``df`` must
+    hold ``daily_ridership`` (actuals up to ``start_idx``) plus every feature column;
+    predictions are returned in millions, matching the training target.
     """
     feature_cols = [c for c in df.columns if c != "daily_ridership"]
     ridership_lag_cols = {
         c: int(c.replace("ridership_lag", ""))
         for c in feature_cols if c.startswith("ridership_lag")
     }
+    # Ridership known up to the day before the first forecast day, in millions. Grows by
+    # one predicted value each step; every ridership-derived feature reads from here so
+    # lags and rolling windows slide forward correctly with the forecast horizon.
+    series = list(df["daily_ridership"].iloc[:start_idx].to_numpy() / 1_000_000)
 
     predictions: list[float] = []
     for step in range(n_steps):
-        target_idx = start_idx + step
-        target_row = df.iloc[target_idx]
+        target_row = df.iloc[start_idx + step]
 
         next_row: dict = {}
         for col in feature_cols:
             if col in ridership_lag_cols:
                 lag = ridership_lag_cols[col]
-                if len(predictions) >= lag:
-                    next_row[col] = predictions[-lag]
-                else:
-                    next_row[col] = df["daily_ridership"].iloc[target_idx - lag] / 1_000_000
+                next_row[col] = series[-lag] if len(series) >= lag else 0.0
             elif col == "ridership_14d_avg":
-                history = list(df["daily_ridership"].iloc[max(0, target_idx - 14):target_idx] / 1_000_000)
-                window = (history + predictions)[-14:]
+                window = series[-14:]
                 next_row[col] = float(np.mean(window)) if window else 0.0
             elif col == "ridership_7d_std":
-                history = list(df["daily_ridership"].iloc[max(0, target_idx - 14):target_idx] / 1_000_000)
-                window = (history + predictions)[-7:]
-                next_row[col] = float(np.std(window)) if len(window) >= 2 else 0.0
+                window = series[-7:]
+                # ddof=1 to match the pandas rolling std used to build the training features.
+                next_row[col] = float(np.std(window, ddof=1)) if len(window) >= 2 else 0.0
             elif col in CATEGORICAL_FEATURES:
                 # Keep as int — casting through float then to a fixed integer
                 # category range would turn the value into NaN.
@@ -76,6 +80,8 @@ def iterative_xgb_predict(model, df: pd.DataFrame, start_idx: int, n_steps: int)
                 next_row[col] = float(target_row[col])
 
         X_next = cast_categoricals(pd.DataFrame([next_row])[feature_cols])
-        predictions.append(float(model.predict(X_next)[0]))
+        pred = float(model.predict(X_next)[0])
+        predictions.append(pred)
+        series.append(pred)
 
     return np.array(predictions)

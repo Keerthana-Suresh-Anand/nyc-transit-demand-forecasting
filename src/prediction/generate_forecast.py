@@ -30,7 +30,7 @@ from src.utils.config import (
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
-from src.utils.features import cast_categoricals
+from src.utils.features import iterative_xgb_predict
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
     get_s3_client,
@@ -180,54 +180,70 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_
     return forecast.predicted_mean, forecast.conf_int()
 
 
+def _build_future_features(
+    df_ml: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date, horizon: int
+) -> pd.DataFrame:
+    """Assemble the known-at-forecast-time features for the ``horizon`` future days so the
+    shared iterative predictor can serve production exactly as it scores the holdout.
+
+    Calendar comes from the date, weather from the forecast, and weather lags slide off the
+    forecast sequence (temp_lag1[d] = temp of the previous day; day 0's lag is the last
+    actual) — matching the batch training features. Ridership-derived columns are NaN
+    placeholders; ``iterative_xgb_predict`` fills them recursively and never reads them.
+    """
+    import holidays as hol
+    us_holidays = hol.US(years=[start_date.year, start_date.year + 1])
+    weather_map = {row.datetime: row for row in weather_fcst.itertuples()}
+
+    def _w(rw, attr, fallback):
+        return getattr(rw, attr) if rw is not None and hasattr(rw, attr) else fallback
+
+    temp_mean = float(df_ml["temp"].mean())
+    # Previous-day weather seeds the lag features; day 0's lag is the last actual day.
+    prev_temp = float(df_ml["temp"].iloc[-1])
+    prev_precip = float(df_ml["precip"].iloc[-1])
+    prev_snow = float(df_ml["snow"].iloc[-1])
+
+    future_dates = [start_date + timedelta(days=i) for i in range(horizon)]
+    rows = []
+    for d in future_dates:
+        rw = weather_map.get(d)
+        temp = float(_w(rw, "temp", temp_mean))
+        precip = float(_w(rw, "precip", 0.0))
+        snow = float(_w(rw, "snow", 0.0))
+        ts = pd.Timestamp(d)
+        rows.append({
+            "day_of_week": ts.dayofweek,
+            "month": ts.month,
+            "is_weekend": int(ts.dayofweek >= 5),
+            "is_holiday": int(d in us_holidays),
+            "temp": temp,
+            "precip": precip,
+            "snow": snow,
+            "snow_lag1": prev_snow,
+            "temp_lag1": prev_temp,
+            "precip_lag1": prev_precip,
+        })
+        prev_temp, prev_precip, prev_snow = temp, precip, snow
+
+    future = pd.DataFrame(rows, index=pd.to_datetime(future_dates))
+    for col in df_ml.columns:
+        if col not in future.columns:
+            future[col] = np.nan  # ridership + lag/rolling cols — filled recursively
+    return future[df_ml.columns]  # align to df_ml's column order for the concat
+
+
 def xgboost_forecast(df_ml: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date) -> np.ndarray:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.xgboost.load_model(f"models:/{XGBOOST_MODEL_NAME}/Production")
 
-    feature_cols = [c for c in df_ml.columns if c != "daily_ridership"]
-    df_rolling = df_ml.copy()
-
-    import holidays as hol
-    us_holidays = hol.US(years=[start_date.year, start_date.year + 1])
-    weather_map = dict(zip(weather_fcst["datetime"], weather_fcst.itertuples()))
-
-    predictions = []
-    for step in range(FORECAST_DAYS):
-        pred_date = start_date + timedelta(days=step)
-        last_row = df_rolling.iloc[-1].copy()
-
-        # Build the next feature row using known future values + predicted ridership lags
-        rw = weather_map.get(pred_date)
-        next_row = {
-            "day_of_week": pd.Timestamp(pred_date).dayofweek,
-            "month": pred_date.month,
-            "is_weekend": int(pd.Timestamp(pred_date).dayofweek >= 5),
-            "is_holiday": int(pred_date in us_holidays),
-            "temp": rw.temp if rw and hasattr(rw, "temp") else last_row.get("temp_lag1", df_ml["temp_lag1"].mean()),
-            "precip": rw.precip if rw and hasattr(rw, "precip") else 0.0,
-            "snow": rw.snow if rw and hasattr(rw, "snow") else 0.0,
-            "snow_lag1": last_row.get("snow", 0.0),
-            "temp_lag1": last_row.get("temp", df_ml["temp_lag1"].mean()),
-            "precip_lag1": last_row.get("precip", 0.0),
-        }
-        # Ridership lags — use predicted values for lags already in forecast window
-        for lag in [1, 2, 3, 7, 14]:
-            lag_idx = -(lag)
-            if len(predictions) >= lag:
-                next_row[f"ridership_lag{lag}"] = predictions[-lag]
-            else:
-                next_row[f"ridership_lag{lag}"] = df_rolling["daily_ridership"].iloc[lag_idx] / 1_000_000
-
-        # Rolling stats — approximate using last available window
-        recent_ridership = list(df_rolling["daily_ridership"].iloc[-14:] / 1_000_000) + predictions
-        next_row["ridership_14d_avg"] = np.mean(recent_ridership[-14:])
-        next_row["ridership_7d_std"] = np.std(recent_ridership[-7:])
-
-        X_next = cast_categoricals(pd.DataFrame([next_row])[feature_cols])
-        pred = float(model.predict(X_next)[0])
-        predictions.append(pred)
-
-    return np.array(predictions)
+    # Serve through the same iterative feature builder the training holdout and
+    # walk-forward use, so production features match what accuracy was validated on
+    # (no train/serve skew). Known future features are assembled here; ridership lags
+    # and rolling stats are filled recursively from each prediction.
+    future = _build_future_features(df_ml, weather_fcst, start_date, FORECAST_DAYS)
+    combined = pd.concat([df_ml, future])
+    return iterative_xgb_predict(model, combined, len(df_ml), FORECAST_DAYS)
 
 
 def run() -> None:

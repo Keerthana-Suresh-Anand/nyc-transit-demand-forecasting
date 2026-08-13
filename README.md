@@ -31,7 +31,7 @@ Daily city-wide is the right scope for the modeling question here. Station- or l
 ## Models
 
 ### SARIMAX
-Captures weekly and annual seasonality with weather exogenous variables (temperature, precipitation, snow lag, holidays). Best suited for structured seasonal patterns. Auto-ARIMA is used to select order parameters at each retraining.
+Captures weekly and annual seasonality with weather exogenous variables (temperature, precipitation, snow lag, holidays). Best suited for structured seasonal patterns. The `(p,d,q)` order is discovered by Auto-ARIMA and then **pinned** — cached to S3 and reused across retrains, and re-searched only when the cache is older than 90 days. This keeps the production architecture (and its coefficient panel) comparable month to month instead of silently changing shape every cycle, and the walk-forward backtest reads the same pinned order so it evaluates the architecture that actually ships.
 
 ### XGBoost
 Uses lag features (ridership 1, 2, 3, 7, 14 days prior), rolling statistics (14-day average, 7-day std), and calendar features. SHAP values are computed at each run for explainability.
@@ -40,7 +40,7 @@ Uses lag features (ridership 1, 2, 3, 7, 14 days prior), rolling statistics (14-
 Predictions are blended **50% SARIMAX + 50% XGBoost** (tunable in `src/utils/config.py`). Equal weights are a deliberate, evidence-based choice — see [Model evaluation](#model-evaluation) below.
 
 ### Champion selection
-Both models are evaluated on the same 60-day holdout. Each family is promoted to `Production` in the MLflow registry only if the new version beats the current Production version of that family — so **both** SARIMAX and XGBoost live in `Production` simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
+Both models are evaluated on a held-out 30-day tail (`TEST_DAYS` in `config.py`, shared by the trainers and the gate), then refit on the full dataset before registration so the shipped model uses every observation. Each family is promoted to `Production` in the MLflow registry only if the new version's logged holdout MAE beats the current Production version of that family — so **both** SARIMAX and XGBoost live in `Production` simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
 
 ---
 

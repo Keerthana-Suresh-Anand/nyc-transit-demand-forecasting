@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.dashboard.utils.data_loader import (
+from nyc_transit_forecasting.dashboard.utils.data_loader import (
     load_forecast,
     load_history,
     load_past_forecasts_vs_actuals,

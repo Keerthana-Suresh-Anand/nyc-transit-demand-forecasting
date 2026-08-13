@@ -11,8 +11,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from src.evaluation.evaluate_models import run
-from src.utils.config import (
+from nyc_transit_forecasting.evaluation.evaluate_models import run
+from nyc_transit_forecasting.utils.config import (
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
     SARIMAX_MODEL_NAME,
@@ -46,14 +46,14 @@ def _patched(*, versions: dict, mae: dict, holdout: dict | None = None):
     def load_holdout(_client, name, _version):
         return holdout.get(name)
 
-    with patch("src.evaluation.evaluate_models.mlflow"), \
-         patch("src.evaluation.evaluate_models.MlflowClient"), \
-         patch("src.evaluation.evaluate_models._latest_and_prod_versions", side_effect=latest_prod), \
-         patch("src.evaluation.evaluate_models._logged_metric", side_effect=logged_metric), \
-         patch("src.evaluation.evaluate_models._load_holdout", side_effect=load_holdout), \
-         patch("src.evaluation.evaluate_models._promote") as mock_promote, \
-         patch("src.evaluation.evaluate_models.get_s3_client"), \
-         patch("src.evaluation.evaluate_models.write_s3_json") as mock_write:
+    with patch("nyc_transit_forecasting.evaluation.evaluate_models.mlflow"), \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models.MlflowClient"), \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models._latest_and_prod_versions", side_effect=latest_prod), \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models._logged_metric", side_effect=logged_metric), \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models._load_holdout", side_effect=load_holdout), \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models._promote") as mock_promote, \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models.get_s3_client"), \
+         patch("nyc_transit_forecasting.evaluation.evaluate_models.write_s3_json") as mock_write:
         yield mock_promote, mock_write
 
 

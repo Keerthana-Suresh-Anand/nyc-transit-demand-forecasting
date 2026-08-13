@@ -5,7 +5,7 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     MTA_BASE_URL,
     MTA_HISTORICAL_DATASET_ID,
     MTA_HISTORICAL_END_DATE,
@@ -15,8 +15,8 @@ from src.utils.config import (
     S3_MTA_PREFIX,
     S3_MTA_WATERMARK,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import (
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import (
     MissingCredentialsError,
     get_s3_client,
     read_watermark,

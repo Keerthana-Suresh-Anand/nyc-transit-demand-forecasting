@@ -1,12 +1,12 @@
 import pandas as pd
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     S3_MTA_PREFIX,
     S3_WEATHER_HIST_PREFIX,
     SILVER_LOCAL_PATH,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import (
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import (
     get_end_date_from_filename,
     get_s3_client,
     list_s3_files,

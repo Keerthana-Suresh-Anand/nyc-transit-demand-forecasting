@@ -6,7 +6,7 @@ WORKDIR /app
 # cannot drift apart. requirements.txt starts with "-e ." (editable install of the
 # local src package), which needs pyproject.toml and src/ present before pip runs.
 COPY pyproject.toml requirements.txt ./
-COPY src/ src/
+COPY nyc_transit_forecasting/ nyc_transit_forecasting/
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -14,5 +14,5 @@ COPY .streamlit/ .streamlit/
 
 EXPOSE 8501
 
-ENTRYPOINT ["streamlit", "run", "src/dashboard/app.py", \
+ENTRYPOINT ["streamlit", "run", "nyc_transit_forecasting/dashboard/app.py", \
             "--server.port=8501", "--server.address=0.0.0.0"]

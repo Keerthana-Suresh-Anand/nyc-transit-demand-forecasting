@@ -2,9 +2,14 @@
 import sys
 from datetime import date, datetime
 
-from src.ingestion import ingest_events, ingest_mta, ingest_weather, merge_silver
-from src.transformation import preprocess_ml, preprocess_sarima
-from src.utils.config import (
+from nyc_transit_forecasting.ingestion import (
+    ingest_events,
+    ingest_mta,
+    ingest_weather,
+    merge_silver,
+)
+from nyc_transit_forecasting.transformation import preprocess_ml, preprocess_sarima
+from nyc_transit_forecasting.utils.config import (
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
     PIPELINE_IMAGE_DIGEST,
@@ -14,8 +19,8 @@ from src.utils.config import (
     S3_SILVER_KEY,
     SILVER_LOCAL_PATH,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, upload_s3_file, write_s3_json
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import get_s3_client, upload_s3_file, write_s3_json
 
 logger = get_logger(__name__)
 

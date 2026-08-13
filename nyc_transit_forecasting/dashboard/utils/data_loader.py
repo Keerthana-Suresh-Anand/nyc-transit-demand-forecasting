@@ -7,7 +7,7 @@ import boto3
 import pandas as pd
 import streamlit as st
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     AWS_KEY,
     AWS_REGION,
     AWS_SECRET,

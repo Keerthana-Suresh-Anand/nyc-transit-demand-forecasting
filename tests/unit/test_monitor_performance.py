@@ -5,12 +5,12 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.monitoring.monitor_performance import (
+from nyc_transit_forecasting.monitoring.monitor_performance import (
     _compute_forecast_metrics,
     _compute_psi_scores,
     run,
 )
-from src.utils.config import PSI_CRITICAL_THRESHOLD, PSI_MODERATE_THRESHOLD
+from nyc_transit_forecasting.utils.config import PSI_CRITICAL_THRESHOLD, PSI_MODERATE_THRESHOLD
 
 
 def _make_gold(periods=120) -> pd.DataFrame:
@@ -119,21 +119,21 @@ class TestComputePsiScores:
 
 class TestMonitorRun:
     def test_returns_error_status_when_no_gold_data(self, monkeypatch):
-        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
-        with patch("src.monitoring.monitor_performance._load_gold", return_value=None):
+        monkeypatch.setattr("nyc_transit_forecasting.monitoring.monitor_performance.get_s3_client", MagicMock())
+        with patch("nyc_transit_forecasting.monitoring.monitor_performance._load_gold", return_value=None):
             result = run()
         assert result["status"] == "error"
 
     def test_no_retrain_on_critical_psi_alone(self, monkeypatch):
         """Critical PSI is informational only — must not trigger retraining."""
         gold = _make_gold(120)
-        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+        monkeypatch.setattr("nyc_transit_forecasting.monitoring.monitor_performance.get_s3_client", MagicMock())
 
-        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
-             patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
-             patch("src.monitoring.monitor_performance._compute_psi_scores",
+        with patch("nyc_transit_forecasting.monitoring.monitor_performance._load_gold", return_value=gold), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._compute_psi_scores",
                    return_value={"temp": PSI_CRITICAL_THRESHOLD + 0.1}), \
-             patch("src.monitoring.monitor_performance.write_s3_json"):
+             patch("nyc_transit_forecasting.monitoring.monitor_performance.write_s3_json"):
             result = run()
 
         assert result["retrain_recommended"] is False
@@ -141,13 +141,13 @@ class TestMonitorRun:
 
     def test_no_retrain_when_stable(self, monkeypatch):
         gold = _make_gold(120)
-        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+        monkeypatch.setattr("nyc_transit_forecasting.monitoring.monitor_performance.get_s3_client", MagicMock())
 
-        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
-             patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
-             patch("src.monitoring.monitor_performance._compute_psi_scores",
+        with patch("nyc_transit_forecasting.monitoring.monitor_performance._load_gold", return_value=gold), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._compute_psi_scores",
                    return_value={"temp": 0.01, "precip": 0.01, "snow": 0.0}), \
-             patch("src.monitoring.monitor_performance.write_s3_json"):
+             patch("nyc_transit_forecasting.monitoring.monitor_performance.write_s3_json"):
             result = run()
 
         assert result["retrain_recommended"] is False
@@ -155,15 +155,15 @@ class TestMonitorRun:
     def test_retrain_recommended_when_mae_exceeds_threshold(self, monkeypatch):
         gold = _make_gold(120)
         past_fc = _make_past_forecasts(gold, n_rows=5)
-        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+        monkeypatch.setattr("nyc_transit_forecasting.monitoring.monitor_performance.get_s3_client", MagicMock())
 
-        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
-             patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=past_fc), \
-             patch("src.monitoring.monitor_performance._compute_psi_scores",
+        with patch("nyc_transit_forecasting.monitoring.monitor_performance._load_gold", return_value=gold), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._load_past_forecasts", return_value=past_fc), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._compute_psi_scores",
                    return_value={"temp": 0.01}), \
-             patch("src.monitoring.monitor_performance._compute_forecast_metrics",
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._compute_forecast_metrics",
                    return_value={"n_evaluated": 5, "rolling_mae_M": 1.0, "rolling_mape_pct": 30.0}), \
-             patch("src.monitoring.monitor_performance.write_s3_json"):
+             patch("nyc_transit_forecasting.monitoring.monitor_performance.write_s3_json"):
             # training_mae=0.5; rolling=1.0 > 1.5 * 0.5 = 0.75 → retrain
             result = run(training_mae=0.5)
 
@@ -171,13 +171,13 @@ class TestMonitorRun:
 
     def test_report_includes_psi_scores(self, monkeypatch):
         gold = _make_gold(120)
-        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+        monkeypatch.setattr("nyc_transit_forecasting.monitoring.monitor_performance.get_s3_client", MagicMock())
 
-        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
-             patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
-             patch("src.monitoring.monitor_performance._compute_psi_scores",
+        with patch("nyc_transit_forecasting.monitoring.monitor_performance._load_gold", return_value=gold), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
+             patch("nyc_transit_forecasting.monitoring.monitor_performance._compute_psi_scores",
                    return_value={"temp": 0.05, "precip": 0.02}), \
-             patch("src.monitoring.monitor_performance.write_s3_json"):
+             patch("nyc_transit_forecasting.monitoring.monitor_performance.write_s3_json"):
             result = run()
 
         assert "psi_scores" in result

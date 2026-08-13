@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
@@ -24,8 +24,8 @@ from src.utils.config import (
     SARIMAX_RESEARCH_DAYS,
     TEST_DAYS,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, read_s3_json, write_s3_json
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import get_s3_client, read_s3_json, write_s3_json
 
 warnings.filterwarnings("ignore")
 # Keep convergence warnings visible — a non-converged SARIMAX is a real signal,

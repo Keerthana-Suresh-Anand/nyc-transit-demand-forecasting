@@ -1,7 +1,7 @@
 import pandas as pd
 
-from src.utils.config import GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
-from src.utils.logger import get_logger
+from nyc_transit_forecasting.utils.config import GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
+from nyc_transit_forecasting.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -30,7 +30,7 @@ def run() -> pd.DataFrame:
 
     # NOTE: day_of_week and month are written as plain ints. The parquet
     # round-trip does not preserve pandas category dtype, so the categorical
-    # cast is applied on read instead (see src/utils/features.cast_categoricals),
+    # cast is applied on read instead (see nyc_transit_forecasting/utils/features.cast_categoricals),
     # consistently in training, evaluation, and inference.
     GOLD_ML_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(GOLD_ML_LOCAL_PATH)

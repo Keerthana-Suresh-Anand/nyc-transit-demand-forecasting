@@ -7,9 +7,13 @@ import pandas as pd
 import pytest
 from moto import mock_aws
 
-from src.ingestion.ingest_weather import fetch_weather, run
-from src.utils.config import S3_MTA_WATERMARK, S3_WEATHER_FORECAST_PREFIX, S3_WEATHER_WATERMARK
-from src.utils.s3_helpers import MissingCredentialsError
+from nyc_transit_forecasting.ingestion.ingest_weather import fetch_weather, run
+from nyc_transit_forecasting.utils.config import (
+    S3_MTA_WATERMARK,
+    S3_WEATHER_FORECAST_PREFIX,
+    S3_WEATHER_WATERMARK,
+)
+from nyc_transit_forecasting.utils.s3_helpers import MissingCredentialsError
 
 BUCKET = "test-bucket"
 
@@ -38,37 +42,37 @@ def _make_weather_response(n_days: int = 5) -> MagicMock:
 
 class TestFetchWeather:
     def test_returns_dataframe_with_datetime_column(self):
-        with patch("src.ingestion.ingest_weather.requests.get", return_value=_make_weather_response(3)):
+        with patch("nyc_transit_forecasting.ingestion.ingest_weather.requests.get", return_value=_make_weather_response(3)):
             df = fetch_weather(date(2025, 1, 1), date(2025, 1, 3))
         assert "datetime" in df.columns
         assert len(df) == 3
 
     def test_datetime_column_converted_to_date(self):
-        with patch("src.ingestion.ingest_weather.requests.get", return_value=_make_weather_response(2)):
+        with patch("nyc_transit_forecasting.ingestion.ingest_weather.requests.get", return_value=_make_weather_response(2)):
             df = fetch_weather(date(2025, 1, 1), date(2025, 1, 2))
         assert isinstance(df["datetime"].iloc[0], date)
 
     def test_raises_on_http_error(self):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = Exception("HTTP 500")
-        with patch("src.ingestion.ingest_weather.requests.get", return_value=mock_resp):
+        with patch("nyc_transit_forecasting.ingestion.ingest_weather.requests.get", return_value=mock_resp):
             with pytest.raises(Exception):
                 fetch_weather(date(2025, 1, 1), date(2025, 1, 5))
 
     def test_raises_when_api_key_missing(self, monkeypatch):
-        monkeypatch.setattr("src.ingestion.ingest_weather.WEATHER_API_KEY", "")
+        monkeypatch.setattr("nyc_transit_forecasting.ingestion.ingest_weather.WEATHER_API_KEY", "")
         with pytest.raises(MissingCredentialsError):
             fetch_weather(date(2025, 1, 1), date(2025, 1, 5))
 
 
 class TestIngestWeatherRun:
     def test_raises_when_mta_watermark_missing(self, s3, monkeypatch):
-        monkeypatch.setattr("src.ingestion.ingest_weather.get_s3_client", lambda: s3)
+        monkeypatch.setattr("nyc_transit_forecasting.ingestion.ingest_weather.get_s3_client", lambda: s3)
         with pytest.raises(RuntimeError):
             run()
 
     def test_always_writes_forecast_csv(self, s3, monkeypatch):
-        monkeypatch.setattr("src.ingestion.ingest_weather.get_s3_client", lambda: s3)
+        monkeypatch.setattr("nyc_transit_forecasting.ingestion.ingest_weather.get_s3_client", lambda: s3)
         # Set MTA watermark so run() proceeds
         mta_date = date.today() - timedelta(days=2)
         s3.put_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK, Body=str(mta_date).encode())
@@ -76,18 +80,18 @@ class TestIngestWeatherRun:
         s3.put_object(Bucket=BUCKET, Key=S3_WEATHER_WATERMARK, Body=str(mta_date).encode())
 
         monkeypatch.setattr(
-            "src.ingestion.ingest_weather.fetch_weather",
+            "nyc_transit_forecasting.ingestion.ingest_weather.fetch_weather",
             lambda s, e: pd.DataFrame({"datetime": [s], "temp": [10.0], "precip": [0.0], "snow": [0.0]}),
         )
 
         run()
 
-        from src.utils.s3_helpers import list_s3_files
+        from nyc_transit_forecasting.utils.s3_helpers import list_s3_files
         forecast_files = list_s3_files(s3, S3_WEATHER_FORECAST_PREFIX, ".csv")
         assert len(forecast_files) >= 1
 
     def test_fetches_historical_when_weather_behind_mta(self, s3, monkeypatch):
-        monkeypatch.setattr("src.ingestion.ingest_weather.get_s3_client", lambda: s3)
+        monkeypatch.setattr("nyc_transit_forecasting.ingestion.ingest_weather.get_s3_client", lambda: s3)
         mta_date = date(2025, 3, 10)
         weather_date = date(2025, 3, 1)
         s3.put_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK, Body=str(mta_date).encode())
@@ -102,7 +106,7 @@ class TestIngestWeatherRun:
                 "temp": [10.0], "precip": [0.0], "snow": [0.0],
             })
 
-        monkeypatch.setattr("src.ingestion.ingest_weather.fetch_weather", capture_fetch)
+        monkeypatch.setattr("nyc_transit_forecasting.ingestion.ingest_weather.fetch_weather", capture_fetch)
 
         run()
 

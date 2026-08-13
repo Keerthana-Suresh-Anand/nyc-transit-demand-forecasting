@@ -32,7 +32,7 @@ jobs:
         run: pip install -e ".[pipeline,dev]"
 
       - name: Lint
-        run: ruff check src/ tests/ pipelines/
+        run: ruff check nyc_transit_forecasting/ tests/ pipelines/
 
       - name: Unit tests
         run: pytest tests/unit/ -v --tb=short

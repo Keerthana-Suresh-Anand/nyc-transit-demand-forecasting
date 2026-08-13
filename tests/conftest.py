@@ -1,12 +1,12 @@
 """
 Shared fixtures for the test suite.
 
-Env vars are set at module level (before any imports) so that src/utils/config.py
+Env vars are set at module level (before any imports) so that nyc_transit_forecasting/utils/config.py
 reads them when it is first imported during test collection.
 """
 import os
 
-# Set before any src.* import — config.py reads these at load time
+# Set before any nyc_transit_forecasting.* import — config.py reads these at load time
 os.environ.setdefault("AWS_ACCESS_KEY", "test-key")
 os.environ.setdefault("AWS_SECRET_KEY", "test-secret")
 os.environ.setdefault("AWS_BUCKET_NAME", "test-bucket")

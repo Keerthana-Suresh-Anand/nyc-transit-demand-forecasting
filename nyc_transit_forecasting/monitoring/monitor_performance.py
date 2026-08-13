@@ -15,8 +15,8 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from src.evaluation.drift_detector import compute_psi
-from src.utils.config import (
+from nyc_transit_forecasting.evaluation.drift_detector import compute_psi
+from nyc_transit_forecasting.utils.config import (
     BUCKET,
     GOLD_SARIMA_LOCAL_PATH,
     MAE_RETRAIN_MULTIPLIER,
@@ -29,8 +29,8 @@ from src.utils.config import (
     S3_RETRAIN_FLAG_KEY,
     S3_RETRAIN_HISTORY_KEY,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import (
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import (
     delete_s3_key,
     get_s3_client,
     list_s3_files,

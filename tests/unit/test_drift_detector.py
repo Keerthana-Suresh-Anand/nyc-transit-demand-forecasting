@@ -1,8 +1,8 @@
 """Tests for drift detection: PSI values and retrain trigger logic."""
 import numpy as np
 
-from src.evaluation.drift_detector import compute_psi
-from src.utils.config import PSI_CRITICAL_THRESHOLD, PSI_MODERATE_THRESHOLD
+from nyc_transit_forecasting.evaluation.drift_detector import compute_psi
+from nyc_transit_forecasting.utils.config import PSI_CRITICAL_THRESHOLD, PSI_MODERATE_THRESHOLD
 
 
 class TestComputePSI:

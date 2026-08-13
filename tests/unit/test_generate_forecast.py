@@ -7,8 +7,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.prediction.generate_forecast import FORECAST_DAYS, _reanchor_sarimax, xgboost_forecast
-from src.utils.config import SARIMAX_EXOG_COLS
+from nyc_transit_forecasting.prediction.generate_forecast import (
+    FORECAST_DAYS,
+    _reanchor_sarimax,
+    xgboost_forecast,
+)
+from nyc_transit_forecasting.utils.config import SARIMAX_EXOG_COLS
 
 
 def _make_ml_df(periods=30) -> pd.DataFrame:
@@ -57,7 +61,7 @@ class TestXGBoostForecast:
         df_ml = _make_ml_df()
         weather = _make_weather_fcst()
         mock_model = self._mock_model()
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
+        with patch("nyc_transit_forecasting.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
             result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
@@ -77,7 +81,7 @@ class TestXGBoostForecast:
         mock_model = MagicMock()
         mock_model.predict.side_effect = capture_predict
 
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
+        with patch("nyc_transit_forecasting.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
             xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
@@ -103,7 +107,7 @@ class TestXGBoostForecast:
         mock_model = MagicMock()
         mock_model.predict.side_effect = stepped_predict
 
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
+        with patch("nyc_transit_forecasting.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
             xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
@@ -126,7 +130,7 @@ class TestXGBoostForecast:
 
         mock_model = MagicMock()
         mock_model.predict.side_effect = capture
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
+        with patch("nyc_transit_forecasting.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = mock_model
             xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
@@ -141,7 +145,7 @@ class TestXGBoostForecast:
     def test_output_is_numpy_array_of_floats(self):
         df_ml = _make_ml_df()
         weather = _make_weather_fcst()
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
+        with patch("nyc_transit_forecasting.prediction.generate_forecast.mlflow") as mock_mlflow:
             mock_mlflow.set_tracking_uri.return_value = None
             mock_mlflow.xgboost.load_model.return_value = self._mock_model()
             result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))

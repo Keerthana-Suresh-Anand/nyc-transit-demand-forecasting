@@ -6,8 +6,8 @@ import pandas as pd
 import pytest
 from moto import mock_aws
 
-import src.utils.s3_helpers as s3_helpers
-from src.utils.s3_helpers import (
+import nyc_transit_forecasting.utils.s3_helpers as s3_helpers
+from nyc_transit_forecasting.utils.s3_helpers import (
     MissingCredentialsError,
     download_s3_file,
     get_s3_client,

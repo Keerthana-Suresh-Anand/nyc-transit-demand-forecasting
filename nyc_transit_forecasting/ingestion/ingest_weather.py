@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import pandas as pd
 import requests
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     MTA_START_DATE,
     S3_MTA_WATERMARK,
     S3_WEATHER_FORECAST_PREFIX,
@@ -15,8 +15,8 @@ from src.utils.config import (
     WEATHER_FORECAST_DAYS,
     WEATHER_LOCATION,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import (
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import (
     MissingCredentialsError,
     get_s3_client,
     read_watermark,

@@ -1,7 +1,7 @@
 """Tests for silver merge: filename date parsing and incremental merge logic."""
 import pandas as pd
 
-from src.utils.s3_helpers import get_end_date_from_filename
+from nyc_transit_forecasting.utils.s3_helpers import get_end_date_from_filename
 
 
 class TestGetEndDateFromFilename:

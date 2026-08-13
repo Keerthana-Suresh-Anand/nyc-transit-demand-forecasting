@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
-COPY src/ src/
+COPY nyc_transit_forecasting/ nyc_transit_forecasting/
 COPY pipelines/ pipelines/
 
 RUN pip install --no-cache-dir ".[pipeline]"

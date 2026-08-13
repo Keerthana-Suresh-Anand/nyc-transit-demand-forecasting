@@ -6,8 +6,8 @@ from typing import Optional
 import boto3
 import pandas as pd
 
-from src.utils.config import AWS_KEY, AWS_REGION, AWS_SECRET, BUCKET
-from src.utils.logger import get_logger
+from nyc_transit_forecasting.utils.config import AWS_KEY, AWS_REGION, AWS_SECRET, BUCKET
+from nyc_transit_forecasting.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

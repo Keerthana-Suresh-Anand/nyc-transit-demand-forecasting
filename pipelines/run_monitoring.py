@@ -2,14 +2,14 @@
 import sys
 from datetime import date, datetime
 
-from src.monitoring import monitor_performance
-from src.utils.config import (
+from nyc_transit_forecasting.monitoring import monitor_performance
+from nyc_transit_forecasting.utils.config import (
     PIPELINE_IMAGE_DIGEST,
     S3_PIPELINE_RUNS_PREFIX,
     S3_TRAINING_BASELINE_KEY,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, read_s3_json, write_s3_json
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import get_s3_client, read_s3_json, write_s3_json
 
 logger = get_logger(__name__)
 

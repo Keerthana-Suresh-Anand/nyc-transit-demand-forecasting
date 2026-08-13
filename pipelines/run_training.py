@@ -9,9 +9,9 @@ from pathlib import Path
 
 import yaml
 
-from src.evaluation import evaluate_models, walk_forward
-from src.training import train_sarimax, train_xgboost
-from src.utils.config import (
+from nyc_transit_forecasting.evaluation import evaluate_models, walk_forward
+from nyc_transit_forecasting.training import train_sarimax, train_xgboost
+from nyc_transit_forecasting.utils.config import (
     PIPELINE_IMAGE_DIGEST,
     REPORTS_DIR,
     S3_PIPELINE_RUNS_PREFIX,
@@ -20,8 +20,13 @@ from src.utils.config import (
     S3_SHAP_KEY,
     S3_WALKFORWARD_KEY,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import delete_s3_key, get_s3_client, upload_s3_file, write_s3_json
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import (
+    delete_s3_key,
+    get_s3_client,
+    upload_s3_file,
+    write_s3_json,
+)
 
 logger = get_logger(__name__)
 

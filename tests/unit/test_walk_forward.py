@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from src.evaluation.walk_forward import (
+from nyc_transit_forecasting.evaluation.walk_forward import (
     block_bootstrap_mae_diff,
     significance_verdict,
     summarize,

@@ -1,8 +1,8 @@
 import holidays
 import pandas as pd
 
-from src.utils.config import GOLD_SARIMA_LOCAL_PATH, SILVER_LOCAL_PATH
-from src.utils.logger import get_logger
+from nyc_transit_forecasting.utils.config import GOLD_SARIMA_LOCAL_PATH, SILVER_LOCAL_PATH
+from nyc_transit_forecasting.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

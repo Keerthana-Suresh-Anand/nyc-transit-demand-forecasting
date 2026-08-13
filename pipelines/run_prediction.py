@@ -6,10 +6,10 @@ pipeline is a pure consumer of the gold layer, it does not rebuild it.
 import sys
 from datetime import date, datetime
 
-from src.prediction import generate_forecast
-from src.utils.config import PIPELINE_IMAGE_DIGEST, S3_PIPELINE_RUNS_PREFIX
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, write_s3_json
+from nyc_transit_forecasting.prediction import generate_forecast
+from nyc_transit_forecasting.utils.config import PIPELINE_IMAGE_DIGEST, S3_PIPELINE_RUNS_PREFIX
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import get_s3_client, write_s3_json
 
 logger = get_logger(__name__)
 

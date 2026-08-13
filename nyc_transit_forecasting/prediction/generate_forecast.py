@@ -16,7 +16,7 @@ import yaml
 from mlflow import MlflowClient
 from sklearn.preprocessing import MinMaxScaler
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
     GOLD_ML_LOCAL_PATH,
@@ -30,9 +30,9 @@ from src.utils.config import (
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
-from src.utils.features import iterative_xgb_predict
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import (
+from nyc_transit_forecasting.utils.features import iterative_xgb_predict
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import (
     get_s3_client,
     list_s3_files,
     read_s3_csv,

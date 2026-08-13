@@ -26,7 +26,7 @@ import pandas as pd
 from mlflow import MlflowClient
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
     GOLD_SARIMA_LOCAL_PATH,
@@ -37,8 +37,8 @@ from src.utils.config import (
     TEST_DAYS,
     XGBOOST_MODEL_NAME,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, write_s3_json
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import get_s3_client, write_s3_json
 
 warnings.filterwarnings("ignore")
 logger = get_logger(__name__)

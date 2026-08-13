@@ -48,7 +48,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*", "pipelines*"]
+include = ["nyc_transit_forecasting*", "pipelines*"]
 
 [tool.ruff]
 line-length = 100

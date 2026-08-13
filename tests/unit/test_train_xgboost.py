@@ -1,7 +1,7 @@
 """Tests for XGBoost training helpers."""
 import pandas as pd
 
-from src.training.train_xgboost import TARGET_COL, get_feature_cols
+from nyc_transit_forecasting.training.train_xgboost import TARGET_COL, get_feature_cols
 
 
 class TestGetFeatureCols:

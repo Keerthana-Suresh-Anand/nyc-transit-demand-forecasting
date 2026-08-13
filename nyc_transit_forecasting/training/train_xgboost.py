@@ -8,7 +8,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     GOLD_ML_LOCAL_PATH,
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
@@ -16,8 +16,8 @@ from src.utils.config import (
     TEST_DAYS,
     XGBOOST_MODEL_NAME,
 )
-from src.utils.features import cast_categoricals, iterative_xgb_predict
-from src.utils.logger import get_logger
+from nyc_transit_forecasting.utils.features import cast_categoricals, iterative_xgb_predict
+from nyc_transit_forecasting.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

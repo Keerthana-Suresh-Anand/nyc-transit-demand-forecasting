@@ -2,7 +2,7 @@
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
-from src.training.train_sarimax import EXOG_COLS, scale_exog
+from nyc_transit_forecasting.training.train_sarimax import EXOG_COLS, scale_exog
 
 
 def _make_exog(periods: int = 100) -> pd.DataFrame:

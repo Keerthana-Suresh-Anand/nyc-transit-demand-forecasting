@@ -10,12 +10,12 @@ from datetime import date, timedelta
 
 import requests
 
-from src.utils.config import (
+from nyc_transit_forecasting.utils.config import (
     S3_EVENTS_PREFIX,
     TICKETMASTER_API_KEY,
 )
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, write_s3_json
+from nyc_transit_forecasting.utils.logger import get_logger
+from nyc_transit_forecasting.utils.s3_helpers import get_s3_client, write_s3_json
 
 logger = get_logger(__name__)
 

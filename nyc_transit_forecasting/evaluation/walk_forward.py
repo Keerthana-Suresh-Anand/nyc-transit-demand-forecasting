@@ -23,13 +23,13 @@ from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-from src.evaluation.evaluate_models import grid_search_weight
-from src.training.train_sarimax import EXOG_COLS, find_best_params
-from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
-from src.transformation import preprocess_ml
-from src.utils.config import GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
-from src.utils.features import cast_categoricals, iterative_xgb_predict
-from src.utils.logger import get_logger
+from nyc_transit_forecasting.evaluation.evaluate_models import grid_search_weight
+from nyc_transit_forecasting.training.train_sarimax import EXOG_COLS, find_best_params
+from nyc_transit_forecasting.training.train_xgboost import XGB_PARAMS, get_feature_cols
+from nyc_transit_forecasting.transformation import preprocess_ml
+from nyc_transit_forecasting.utils.config import GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
+from nyc_transit_forecasting.utils.features import cast_categoricals, iterative_xgb_predict
+from nyc_transit_forecasting.utils.logger import get_logger
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("always", category=ConvergenceWarning)  # keep convergence signal visible

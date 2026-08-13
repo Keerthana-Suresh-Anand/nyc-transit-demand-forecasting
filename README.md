@@ -37,7 +37,7 @@ Captures weekly and annual seasonality with weather exogenous variables (tempera
 Uses lag features (ridership 1, 2, 3, 7, 14 days prior), rolling statistics (14-day average, 7-day std), and calendar features. SHAP values are computed at each run for explainability.
 
 ### Ensemble
-Predictions are blended **50% SARIMAX + 50% XGBoost** (tunable in `src/utils/config.py`). Equal weights are a deliberate, evidence-based choice — see [Model evaluation](#model-evaluation) below.
+Predictions are blended **50% SARIMAX + 50% XGBoost** (tunable in `nyc_transit_forecasting/utils/config.py`). Equal weights are a deliberate, evidence-based choice — see [Model evaluation](#model-evaluation) below.
 
 ### Champion selection
 Both models are evaluated on the same 60-day holdout. Each family is promoted to `Production` in the MLflow registry only if the new version beats the current Production version of that family — so **both** SARIMAX and XGBoost live in `Production` simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.

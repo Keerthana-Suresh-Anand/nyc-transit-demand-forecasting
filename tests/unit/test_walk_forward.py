@@ -1,7 +1,10 @@
 """Tests for the walk-forward evaluator's pure statistical core (no model fitting)."""
+from datetime import date
+
 import numpy as np
 import pytest
 
+import src.evaluation.walk_forward as wf
 from src.evaluation.walk_forward import (
     block_bootstrap_mae_diff,
     significance_verdict,
@@ -74,3 +77,28 @@ class TestSummarize:
         sig = r["significance"]["sarimax_vs_xgboost"]
         assert sig["ci_hi"] < 0
         assert sig["verdict"] == "SARIMAX significantly better"
+
+
+class TestPinnedProductionOrder:
+    """The backtest pins to production's cached SARIMAX order, and degrades to a
+    fresh search (returns None) on any cache/credential failure."""
+
+    def test_returns_order_and_seasonal_from_cache(self, monkeypatch):
+        monkeypatch.setattr(wf, "get_s3_client", lambda: object())
+        monkeypatch.setattr(
+            wf, "_load_cached_order",
+            lambda s3: ((1, 0, 1), (2, 1, 0, 7), date(2026, 6, 24)),
+        )
+        assert wf._pinned_production_order() == ((1, 0, 1), (2, 1, 0, 7))
+
+    def test_returns_none_on_cache_miss(self, monkeypatch):
+        monkeypatch.setattr(wf, "get_s3_client", lambda: object())
+        monkeypatch.setattr(wf, "_load_cached_order", lambda s3: None)
+        assert wf._pinned_production_order() is None
+
+    def test_returns_none_when_s3_unavailable(self, monkeypatch):
+        def boom():
+            raise RuntimeError("no creds")
+
+        monkeypatch.setattr(wf, "get_s3_client", boom)
+        assert wf._pinned_production_order() is None

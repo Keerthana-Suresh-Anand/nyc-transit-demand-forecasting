@@ -24,12 +24,13 @@ from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from src.evaluation.evaluate_models import grid_search_weight
-from src.training.train_sarimax import EXOG_COLS, find_best_params
+from src.training.train_sarimax import EXOG_COLS, _load_cached_order, find_best_params
 from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
 from src.transformation import preprocess_ml
 from src.utils.config import GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
 from src.utils.features import cast_categoricals, iterative_xgb_predict
 from src.utils.logger import get_logger
+from src.utils.s3_helpers import get_s3_client
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("always", category=ConvergenceWarning)  # keep convergence signal visible
@@ -264,7 +265,30 @@ def format_report(results: dict) -> str:
     return "\n".join(lines)
 
 
-def run() -> dict:
+def _pinned_production_order() -> tuple | None:
+    """Best-effort fetch of the SARIMAX order production is currently serving, from
+    the S3 cache. Returns ``(order, seasonal_order)`` or ``None``.
+
+    The backtest defaults to this so it evaluates the *same* SARIMAX architecture
+    production ships, rather than a fresh auto_arima order that could silently
+    diverge from the pinned one and make the dashboard's accuracy describe a model
+    that never serves. Any failure (no credentials, cache miss) returns ``None`` and
+    the caller falls back to re-searching — the prior behaviour — so local/offline
+    runs still work.
+    """
+    try:
+        cached = _load_cached_order(get_s3_client())
+    except Exception as e:  # no creds / network — degrade to a fresh search
+        logger.warning(f"Could not read pinned SARIMAX order ({e}); walk-forward will re-search")
+        return None
+    if cached is None:
+        logger.warning("No pinned SARIMAX order in cache; walk-forward will re-search")
+        return None
+    order_pdq, seasonal_order, _ = cached
+    return order_pdq, seasonal_order
+
+
+def run(order: tuple | None = None) -> dict:
     logger.info(f"Regenerating ML gold; walk-forward H={H}, step={STEP}, eval window={EVAL_DAYS}d")
     preprocess_ml.run()
 
@@ -278,8 +302,21 @@ def run() -> dict:
     df_ml.index = pd.to_datetime(df_ml.index)
     df_ml = cast_categoricals(df_ml)
 
-    blocks = walk_forward(y, exog, df_ml)
+    # Pin the backtest to production's cached SARIMAX order so it evaluates the same
+    # architecture that ships, not a freshly-searched order that could diverge from
+    # it. Falls back to a fresh search when the pin is unavailable.
+    if order is None:
+        order = _pinned_production_order()
+    logger.info(
+        "Walk-forward SARIMAX order: "
+        + (f"pinned to production {order[0]}x{order[1]}" if order else "re-searching (no pin available)")
+    )
+
+    blocks = walk_forward(y, exog, df_ml, order=order)
     results = summarize(blocks)
+    results["sarimax_order_source"] = "pinned_production" if order else "re_searched"
+    if order:
+        results["sarimax_order"] = {"order": list(order[0]), "seasonal_order": list(order[1])}
     print(format_report(results))
     return results
 

@@ -5,11 +5,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Install third-party deps from the hash-pinned lock (uv pip compile of the
+# pipeline extra) so every image build resolves to byte-identical versions
+# instead of re-resolving the pyproject ">=" ranges. Copied before the source so
+# this heavy layer is cached until the lock itself changes. --require-hashes
+# fails the build if any resolved artifact's hash doesn't match the lock.
+COPY requirements/pipeline.lock requirements/pipeline.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements/pipeline.lock
+
 COPY pyproject.toml .
 COPY src/ src/
 COPY pipelines/ pipelines/
 
-RUN pip install --no-cache-dir ".[pipeline]"
+# Install the local package only — its dependencies are already pinned above, so
+# --no-deps keeps pip from re-resolving them off the ">=" ranges in pyproject.
+RUN pip install --no-cache-dir --no-deps .
 
 ENV RUNNING_IN_CONTAINER=true
 

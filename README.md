@@ -63,19 +63,29 @@ Models are scored with **14-day rolling-origin walk-forward** — the horizon an
 
 ### Results (latest walk-forward, 11 weekly origins / 154 forecast points)
 
-| Model | MAE (M) | MAPE |
-|-------|---------|------|
-| Persistence | 0.757 | 30.4% |
-| Seasonal-naive (m=7) | 0.305 | 10.0% |
-| SARIMAX | 0.258 | 9.3% |
-| XGBoost | 0.255 | 8.7% |
-| **Ensemble 50/50** | **0.248** | 8.8% |
+| Model | MAE (M) | MAPE | MASE |
+|-------|---------|------|------|
+| Persistence | 0.819 | 31.8% | 2.29 |
+| Seasonal-naive (m=7) | 0.357 | 13.5% | 1.00 |
+| SARIMAX | 0.260 | 10.3% | 0.73 |
+| XGBoost | 0.219 | 8.7% | 0.61 |
+| **Ensemble 50/50** | **0.216** | 8.9% | **0.60** |
 
-Both models beat seasonal-naive by ~15%, justifying the modeling effort.
+The ensemble beats seasonal-naive by ~40%, justifying the modeling effort. Persistence is included
+for completeness but is a weak benchmark on a series this seasonal — at MASE 2.29 it's over twice
+the error of simply repeating last week, so seasonal-naive is the bar that matters.
 
 ### Why 50/50 (and not a tuned weight)
 
-Block-bootstrapped 95% confidence intervals on the pairwise MAE differences (10,000 resamples over whole origins) **all span zero** — SARIMAX vs XGBoost, and the ensemble vs either individual model, are **statistically indistinguishable** on the current data. When no model is reliably better, equal weighting is the honest choice; tuning a precise weight would overfit noise. A heavier weight will only be justified once a longer evaluation window (more origins, multiple seasons) tightens the intervals enough to show a real difference.
+Block-bootstrapped 95% confidence intervals on the pairwise MAE differences (10,000 resamples over whole origins):
+
+| Comparison | ΔMAE | 95% CI | Verdict |
+|------------|------|--------|---------|
+| SARIMAX vs XGBoost | +0.041 | [−0.005, +0.094] | tie |
+| Ensemble vs XGBoost | −0.003 | [−0.025, +0.021] | tie |
+| Ensemble vs SARIMAX | −0.044 | [−0.075, −0.016] | **ensemble better** |
+
+XGBoost has the better point estimate, but the SARIMAX-vs-XGBoost interval still spans zero — no reliable winner between the two families, so equal weighting remains the honest choice; tuning a precise weight would overfit noise (the grid optimum, 0.35 SARIMAX, is within 0.003 MAE of the 50/50 point). The ensemble does **significantly** beat SARIMAX while tying XGBoost, so diversification demonstrably doesn't hurt and helps against one component — which is the case for keeping both. A heavier tilt toward XGBoost will only be justified once a longer window (more origins, multiple seasons) tightens the SARIMAX-vs-XGBoost interval.
 
 ---
 

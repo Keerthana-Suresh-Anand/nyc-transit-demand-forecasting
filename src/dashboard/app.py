@@ -436,10 +436,10 @@ with st.expander("🔬  Evaluation methodology"):
     st.markdown(
         "**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon and "
         "weekly re-anchor) found SARIMAX and XGBoost statistically indistinguishable — a block "
-        "bootstrap put every pairwise MAE-difference 95% CI across zero. With no reliable winner, "
-        "equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
-        "**Why keep both?** The ensemble's point estimate is best and the weight curve is convex "
-        "(genuine diversification), with no evidence it hurts.\n\n"
+        "bootstrap put that MAE-difference 95% CI across zero. With no reliable winner between "
+        "them, equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
+        "**Why keep both?** The ensemble significantly beats SARIMAX and ties XGBoost, so "
+        "diversification helps against one component and costs nothing against the other.\n\n"
         "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
         "seasonal false alarms, so it's tracked but informational only.\n\n"
         "**Benchmarks** (seasonal-naive, persistence) are scored every cycle: a model is only as "
@@ -490,8 +490,8 @@ if acc:
     # Bootstrap significance — only the walk-forward has enough origins to resample.
     if acc.get("significance"):
         st.markdown("**Is the difference real?** — block bootstrap, 95% CI on the MAE difference:")
-        st.caption("Where the CI spans zero, the models are statistically indistinguishable — "
-                   "so the ensemble weights them 50/50.")
+        st.caption("Where the CI spans zero, the two are statistically indistinguishable. "
+                   "SARIMAX and XGBoost tie, which is why the ensemble weights them 50/50.")
         for _key, _lbl in [
             ("sarimax_vs_xgboost", "SARIMAX vs XGBoost"),
             ("ensemble_vs_sarimax", "Ensemble vs SARIMAX"),

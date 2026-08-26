@@ -36,6 +36,13 @@ def test_soql_query_groups_by_date_and_station():
     assert "station_complex" in q
 
 
+def test_soql_query_orders_by_total_key():
+    # LIMIT/OFFSET paging needs a total order — transit_date alone is non-unique
+    # (one row per station per date), which can duplicate/drop rows at page bounds.
+    q = _decode(build_soql_query(date(2025, 1, 1), date(2025, 1, 7), limit=500, offset=0))
+    assert "ORDER BY transit_date, station_complex, borough" in q
+
+
 def test_soql_query_respects_limit_and_offset():
     q = _decode(build_soql_query(date(2025, 1, 1), date(2025, 1, 7), limit=250, offset=500))
     assert "LIMIT 250" in q
@@ -79,10 +86,12 @@ class TestFetchMtaData:
         assert df.empty
 
     def test_raises_on_http_error(self):
+        import requests
+
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = Exception("HTTP 500")
+        mock_resp.raise_for_status.side_effect = requests.HTTPError("HTTP 500")
         with patch("src.ingestion.ingest_mta.requests.get", return_value=mock_resp):
-            with pytest.raises(Exception):
+            with pytest.raises(requests.HTTPError):
                 fetch_mta_data(date(2025, 1, 1), date(2025, 1, 31))
 
     def test_raises_when_app_token_missing(self, monkeypatch):

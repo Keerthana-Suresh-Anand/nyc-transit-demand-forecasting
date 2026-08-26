@@ -5,20 +5,20 @@ Writes forecast to S3 as both a timestamped parquet and latest_forecast.json.
 import pickle
 import warnings
 from datetime import date, timedelta
-from pathlib import Path
 
 import mlflow
 import mlflow.statsmodels
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
-import yaml
 from mlflow import MlflowClient
 from sklearn.preprocessing import MinMaxScaler
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 from src.utils.config import (
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
+    FORECAST_HORIZON_DAYS,
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_TRACKING_URI,
@@ -30,7 +30,8 @@ from src.utils.config import (
     SARIMAX_MODEL_NAME,
     XGBOOST_MODEL_NAME,
 )
-from src.utils.features import iterative_xgb_predict
+from src.utils.features import iterative_xgb_predict, us_holidays_spanning
+from src.utils.lineage import read_gold_dvc_md5
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
     get_s3_client,
@@ -41,10 +42,12 @@ from src.utils.s3_helpers import (
 )
 
 warnings.filterwarnings("ignore")
+# Keep convergence warnings visible — a non-converged SARIMAX re-anchor is a real
+# signal, not noise to silence with the blanket filter above.
+warnings.filterwarnings("always", category=ConvergenceWarning)
 logger = get_logger(__name__)
 
-ML_FEATURE_COLS = None  # resolved at runtime from training data
-FORECAST_DAYS = 14
+FORECAST_DAYS = FORECAST_HORIZON_DAYS
 
 
 def _load_production_scaler() -> MinMaxScaler | None:
@@ -90,17 +93,6 @@ def _production_versions() -> dict:
     return out
 
 
-def _gold_dvc_md5() -> str | None:
-    """md5 of the gold SARIMA parquet from its DVC pointer, tying the forecast to a
-    data version. Best-effort — returns None if the pointer isn't present.
-    """
-    try:
-        with open(Path("data/gold/mta_sarima.parquet.dvc")) as f:
-            return yaml.safe_load(f)["outs"][0]["md5"]
-    except Exception:
-        return None
-
-
 def load_latest_weather_forecast(s3) -> pd.DataFrame:
     keys = sorted(list_s3_files(s3, S3_WEATHER_FORECAST_PREFIX))
     if not keys:
@@ -140,7 +132,9 @@ def _reanchor_sarimax(model, df_sarima: pd.DataFrame, scaler: MinMaxScaler):
     return model
 
 
-def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date) -> pd.Series:
+def sarimax_forecast(
+    df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date
+) -> tuple[pd.Series, pd.DataFrame]:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/Production")
 
@@ -154,11 +148,10 @@ def sarimax_forecast(df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_
     # anchored at start_date - 1, not at the (possibly weeks-old) training end.
     model = _reanchor_sarimax(model, df_sarima, scaler)
 
-    import holidays as hol
-    us_holidays = hol.US(years=[start_date.year, start_date.year + 1])
+    us_holidays = us_holidays_spanning(start_date.year, start_date.year + 1)
 
     future_dates = [start_date + timedelta(days=i) for i in range(FORECAST_DAYS)]
-    weather_map = dict(zip(weather_fcst["datetime"], weather_fcst.itertuples()))
+    weather_map = dict(zip(weather_fcst["datetime"], weather_fcst.itertuples(), strict=True))
 
     rows = []
     last_snow = float(df_sarima["snow"].iloc[-1])
@@ -191,8 +184,7 @@ def _build_future_features(
     actual) — matching the batch training features. Ridership-derived columns are NaN
     placeholders; ``iterative_xgb_predict`` fills them recursively and never reads them.
     """
-    import holidays as hol
-    us_holidays = hol.US(years=[start_date.year, start_date.year + 1])
+    us_holidays = us_holidays_spanning(start_date.year, start_date.year + 1)
     weather_map = {row.datetime: row for row in weather_fcst.itertuples()}
 
     def _w(rw, attr, fallback):
@@ -291,7 +283,7 @@ def run() -> None:
         "sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
         "xgboost_weight": ENSEMBLE_XGB_WEIGHT,
         "model_versions": _production_versions(),
-        "gold_sarima_dvc_md5": _gold_dvc_md5(),
+        "gold_sarima_dvc_md5": read_gold_dvc_md5(),
         "image_digest": PIPELINE_IMAGE_DIGEST,
         "last_actual_date": str(df_sarima.index.max().date()),
         "forecasts": df_forecast.to_dict(orient="records"),

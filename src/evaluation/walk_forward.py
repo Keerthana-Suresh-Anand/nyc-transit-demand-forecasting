@@ -27,7 +27,12 @@ from src.evaluation.evaluate_models import grid_search_weight
 from src.training.train_sarimax import EXOG_COLS, _load_cached_order, find_best_params
 from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
 from src.transformation import preprocess_ml
-from src.utils.config import GOLD_ML_LOCAL_PATH, GOLD_SARIMA_LOCAL_PATH
+from src.utils.config import (
+    FORECAST_HORIZON_DAYS,
+    GOLD_ML_LOCAL_PATH,
+    GOLD_SARIMA_LOCAL_PATH,
+    TEST_DAYS,
+)
 from src.utils.features import cast_categoricals, iterative_xgb_predict
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client
@@ -38,7 +43,7 @@ logger = get_logger(__name__)
 
 EVAL_DAYS = 90   # window over which origins roll
 STEP = 7         # weekly re-anchor, matching production cadence
-H = 14           # forecast horizon, matching production
+H = FORECAST_HORIZON_DAYS
 
 
 def _mae(a: np.ndarray, b: np.ndarray) -> float:
@@ -105,9 +110,16 @@ def walk_forward(
     ml_cut = df_ml.index.get_loc(cutoff_date) + 1
     x_ml = df_ml[feat]
     y_ml = df_ml["daily_ridership"] / 1_000_000
-    xmodel = xgb.XGBRegressor(**XGB_PARAMS)
-    xmodel.fit(x_ml.iloc[:ml_cut], y_ml.iloc[:ml_cut],
-               eval_set=[(x_ml.iloc[ml_cut - 30:ml_cut], y_ml.iloc[ml_cut - 30:ml_cut])], verbose=False)
+    # Production recipe (train_xgboost.run): early-stop on a validation tail held
+    # out of the fit, then refit on the full training window with that tree count.
+    val_cut = ml_cut - TEST_DAYS
+    es_model = xgb.XGBRegressor(**XGB_PARAMS)
+    es_model.fit(x_ml.iloc[:val_cut], y_ml.iloc[:val_cut],
+                 eval_set=[(x_ml.iloc[val_cut:ml_cut], y_ml.iloc[val_cut:ml_cut])], verbose=False)
+    xgb_params = {k: v for k, v in XGB_PARAMS.items() if k != "early_stopping_rounds"}
+    xgb_params["n_estimators"] = (es_model.best_iteration or 0) + 1
+    xmodel = xgb.XGBRegressor(**xgb_params)
+    xmodel.fit(x_ml.iloc[:ml_cut], y_ml.iloc[:ml_cut], verbose=False)
 
     s_all, x_all, a_all, sn_all, pe_all = [], [], [], [], []
     origins = list(range(train_end - 1, n - horizon, step))
@@ -172,7 +184,7 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
 
     # Fixed a-priori 50/50 ensemble blocks for significance — not the grid-search
     # best — so the ensemble is not credited for a weight tuned on this same data.
-    ens50_blocks = [0.5 * sb + 0.5 * xb for sb, xb in zip(blocks["sarimax"], blocks["xgboost"])]
+    ens50_blocks = [0.5 * sb + 0.5 * xb for sb, xb in zip(blocks["sarimax"], blocks["xgboost"], strict=True)]
     significance = {}
     for key, p1b, p2b, n1, n2 in [
         ("sarimax_vs_xgboost", blocks["sarimax"], blocks["xgboost"], "SARIMAX", "XGBoost"),

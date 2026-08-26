@@ -1,7 +1,6 @@
 import io
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
 
 import boto3
 import pandas as pd
@@ -28,7 +27,7 @@ def get_s3_client():
                         region_name=AWS_REGION)
 
 
-def read_watermark(s3_client, key: str) -> Optional[date]:
+def read_watermark(s3_client, key: str) -> date | None:
     """Read a date watermark from S3. Returns None if not found."""
     try:
         obj = s3_client.get_object(Bucket=BUCKET, Key=key)

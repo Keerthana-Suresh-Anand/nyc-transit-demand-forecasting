@@ -9,7 +9,6 @@ Post-hoc performance monitor.
 6. If rolling MAE exceeds the retrain threshold (and not within the cooldown),
    writes retrain_flag.json. PSI is informational only and never triggers a retrain.
 """
-import io
 from datetime import date
 
 import numpy as np
@@ -17,7 +16,6 @@ import pandas as pd
 
 from src.evaluation.drift_detector import compute_psi
 from src.utils.config import (
-    BUCKET,
     GOLD_SARIMA_LOCAL_PATH,
     MAE_RETRAIN_MULTIPLIER,
     PSI_CRITICAL_THRESHOLD,
@@ -35,6 +33,7 @@ from src.utils.s3_helpers import (
     get_s3_client,
     list_s3_files,
     read_s3_json,
+    read_s3_parquet,
     write_s3_json,
 )
 
@@ -48,8 +47,7 @@ N_FORECAST_FILES = 8   # how many past weekly forecasts to evaluate
 
 def _load_gold(s3) -> pd.DataFrame | None:
     try:
-        obj = s3.get_object(Bucket=BUCKET, Key=S3_GOLD_SARIMA_KEY)
-        df = pd.read_parquet(io.BytesIO(obj["Body"].read()))
+        df = read_s3_parquet(s3, S3_GOLD_SARIMA_KEY)
     except Exception:
         if GOLD_SARIMA_LOCAL_PATH.exists():
             df = pd.read_parquet(GOLD_SARIMA_LOCAL_PATH)
@@ -68,8 +66,7 @@ def _load_past_forecasts(s3) -> pd.DataFrame | None:
     rows = []
     for key in parquet_keys[-N_FORECAST_FILES:]:
         try:
-            obj = s3.get_object(Bucket=BUCKET, Key=key)
-            df_fc = pd.read_parquet(io.BytesIO(obj["Body"].read()))
+            df_fc = read_s3_parquet(s3, key)
             df_fc["date"] = pd.to_datetime(df_fc["date"]).dt.date
             rows.append(df_fc[df_fc["date"] < today])
         except Exception as e:

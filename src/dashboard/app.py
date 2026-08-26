@@ -594,7 +594,7 @@ if _has_live:
     ))
 
 if len(_charts) == 2:
-    for _col, (_fig, _cap) in zip(st.columns(2), _charts):
+    for _col, (_fig, _cap) in zip(st.columns(2), _charts, strict=True):
         with _col:
             _show(_fig)
             st.caption(_cap)

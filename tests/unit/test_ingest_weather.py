@@ -49,10 +49,12 @@ class TestFetchWeather:
         assert isinstance(df["datetime"].iloc[0], date)
 
     def test_raises_on_http_error(self):
+        import requests
+
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = Exception("HTTP 500")
+        mock_resp.raise_for_status.side_effect = requests.HTTPError("HTTP 500")
         with patch("src.ingestion.ingest_weather.requests.get", return_value=mock_resp):
-            with pytest.raises(Exception):
+            with pytest.raises(requests.HTTPError):
                 fetch_weather(date(2025, 1, 1), date(2025, 1, 5))
 
     def test_raises_when_api_key_missing(self, monkeypatch):

@@ -32,10 +32,14 @@ MTA_BASE_URL = f"https://data.ny.gov/resource/{MTA_DATASET_ID}.csv"
 MTA_START_DATE = "2022-01-01"
 MTA_LAG_DAYS = 6
 
+# Forecast horizon (days) — single source of truth shared by the prediction
+# pipeline, the walk-forward backtest, and the weather forecast fetch below.
+FORECAST_HORIZON_DAYS = 14
+
 # Weather API
 WEATHER_LOCATION = "40.7812,-73.9665"  # Central Park, NYC
 WEATHER_BASE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"
-WEATHER_FORECAST_DAYS = 14
+WEATHER_FORECAST_DAYS = FORECAST_HORIZON_DAYS
 
 # S3 keys — bronze layer
 S3_MTA_PREFIX = "bronze/mta/"

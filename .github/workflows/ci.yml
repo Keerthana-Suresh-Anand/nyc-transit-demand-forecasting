@@ -37,6 +37,9 @@ jobs:
       - name: Unit tests
         run: pytest tests/unit/ -v --tb=short
 
+      - name: Integration tests
+        run: pytest tests/integration/ -v --tb=short
+
   build-and-push:
     needs: lint-and-test
     # Publish only from main: without the ref check, a manual workflow_dispatch from

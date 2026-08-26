@@ -30,10 +30,6 @@ _HISTORICAL_END = date.fromisoformat(MTA_HISTORICAL_END_DATE)
 _HISTORICAL_BASE_URL = f"https://data.ny.gov/resource/{MTA_HISTORICAL_DATASET_ID}.csv"
 
 
-def _base_url_for(fetch_date: date) -> str:
-    return _HISTORICAL_BASE_URL if fetch_date <= _HISTORICAL_END else MTA_BASE_URL
-
-
 def build_soql_query(start_date: date, end_date: date, limit: int, offset: int) -> str:
     query = (
         f"SELECT date_trunc_ymd(transit_timestamp) AS transit_date, "
@@ -43,7 +39,8 @@ def build_soql_query(start_date: date, end_date: date, limit: int, offset: int) 
         f"AND transit_timestamp >= '{start_date}T00:00:00' "
         f"AND transit_timestamp <= '{end_date}T23:59:59' "
         f"GROUP BY transit_date, station_complex, borough "
-        f"ORDER BY transit_date ASC "
+        # Total-order sort: LIMIT/OFFSET paging over ties can duplicate/drop rows.
+        f"ORDER BY transit_date, station_complex, borough ASC "
         f"LIMIT {limit} OFFSET {offset}"
     )
     return quote(query)

@@ -1,4 +1,4 @@
-"""Shared feature definitions for the XGBoost model.
+"""Shared feature definitions used across training, evaluation, and serving.
 
 Categorical features use fixed category ranges so that training, evaluation,
 and inference always agree on the encoding regardless of which values happen
@@ -6,8 +6,19 @@ to appear in a given data slice. This prevents train/serve skew when a single
 forecast row (or a short evaluation window) does not contain every weekday or
 month.
 """
+import holidays
 import numpy as np
 import pandas as pd
+
+
+def us_holidays_spanning(start_year: int, end_year: int) -> holidays.HolidayBase:
+    """US holiday calendar covering [start_year, end_year] inclusive.
+
+    Single construction path for the holiday feature in gold preprocessing and
+    the future-exog builders in prediction, so the calendar can never drift
+    between training and serving.
+    """
+    return holidays.US(years=range(start_year, end_year + 1))
 
 # Calendar features treated as native XGBoost categoricals (enable_categorical=True)
 CATEGORICAL_FEATURES = ["day_of_week", "month"]

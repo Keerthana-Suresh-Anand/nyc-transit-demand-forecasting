@@ -5,8 +5,6 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
-
 LOG_FILE = LOG_DIR / "project_log.log"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -29,6 +27,7 @@ def get_logger(module_name: str) -> logging.Logger:
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
 
+    LOG_DIR.mkdir(exist_ok=True)
     file_handler = RotatingFileHandler(
         LOG_FILE,
         maxBytes=5 * 1024 * 1024,

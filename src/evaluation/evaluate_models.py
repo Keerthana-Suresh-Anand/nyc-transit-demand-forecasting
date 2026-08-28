@@ -38,6 +38,7 @@ from src.utils.config import (
     XGBOOST_MODEL_NAME,
 )
 from src.utils.logger import get_logger
+from src.utils.registry import promote_to_production, resolve_production_version
 from src.utils.s3_helpers import get_s3_client, write_s3_json
 
 warnings.filterwarnings("ignore")
@@ -51,8 +52,8 @@ def _latest_and_prod_versions(client: MlflowClient, model_name: str) -> tuple[in
     if not versions:
         return None, None
     new_ver = max(int(v.version) for v in versions)
-    prod = [int(v.version) for v in versions if v.current_stage == "Production"]
-    return new_ver, (max(prod) if prod else None)
+    prod = resolve_production_version(client, model_name)
+    return new_ver, (int(prod.version) if prod else None)
 
 
 def _logged_metric(client: MlflowClient, model_name: str, version: int, metric: str = "mae") -> float | None:
@@ -74,10 +75,7 @@ def _load_holdout(client: MlflowClient, model_name: str, version: int) -> pd.Dat
 
 
 def _promote(client: MlflowClient, model_name: str, version: int) -> None:
-    client.transition_model_version_stage(
-        name=model_name, version=str(version), stage="Production",
-        archive_existing_versions=True,
-    )
+    promote_to_production(client, model_name, version)
 
 
 def _gate(client: MlflowClient, model_name: str) -> tuple[int | None, float | None]:

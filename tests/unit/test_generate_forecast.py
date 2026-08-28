@@ -1,5 +1,6 @@
 """Tests for forecast generation: output shape, date range, autoregressive XGBoost loop,
 SARIMAX state re-anchoring."""
+import contextlib
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,17 @@ import pytest
 
 from src.prediction.generate_forecast import FORECAST_DAYS, _reanchor_sarimax, xgboost_forecast
 from src.utils.config import SARIMAX_EXOG_COLS
+
+
+@contextlib.contextmanager
+def _patched_model_loading(mock_model):
+    """Patch registry resolution + model loading so xgboost_forecast runs offline."""
+    with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow, \
+         patch("src.prediction.generate_forecast.MlflowClient"), \
+         patch("src.prediction.generate_forecast.production_model_uri",
+               return_value="models:/xgboost_production/1"):
+        mock_mlflow.xgboost.load_model.return_value = mock_model
+        yield
 
 
 def _make_ml_df(periods=30) -> pd.DataFrame:
@@ -57,9 +69,7 @@ class TestXGBoostForecast:
         df_ml = _make_ml_df()
         weather = _make_weather_fcst()
         mock_model = self._mock_model()
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
-            mock_mlflow.set_tracking_uri.return_value = None
-            mock_mlflow.xgboost.load_model.return_value = mock_model
+        with _patched_model_loading(mock_model):
             result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
         assert len(result) == FORECAST_DAYS
 
@@ -77,9 +87,7 @@ class TestXGBoostForecast:
         mock_model = MagicMock()
         mock_model.predict.side_effect = capture_predict
 
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
-            mock_mlflow.set_tracking_uri.return_value = None
-            mock_mlflow.xgboost.load_model.return_value = mock_model
+        with _patched_model_loading(mock_model):
             xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
 
         expected_first_dow = (date.today() + timedelta(days=1)).weekday()
@@ -103,9 +111,7 @@ class TestXGBoostForecast:
         mock_model = MagicMock()
         mock_model.predict.side_effect = stepped_predict
 
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
-            mock_mlflow.set_tracking_uri.return_value = None
-            mock_mlflow.xgboost.load_model.return_value = mock_model
+        with _patched_model_loading(mock_model):
             xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
 
         # Step 2's lag1 must equal step 1's prediction
@@ -126,9 +132,7 @@ class TestXGBoostForecast:
 
         mock_model = MagicMock()
         mock_model.predict.side_effect = capture
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
-            mock_mlflow.set_tracking_uri.return_value = None
-            mock_mlflow.xgboost.load_model.return_value = mock_model
+        with _patched_model_loading(mock_model):
             xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
 
         assert len(lag14_seen) == FORECAST_DAYS
@@ -141,9 +145,7 @@ class TestXGBoostForecast:
     def test_output_is_numpy_array_of_floats(self):
         df_ml = _make_ml_df()
         weather = _make_weather_fcst()
-        with patch("src.prediction.generate_forecast.mlflow") as mock_mlflow:
-            mock_mlflow.set_tracking_uri.return_value = None
-            mock_mlflow.xgboost.load_model.return_value = self._mock_model()
+        with _patched_model_loading(self._mock_model()):
             result = xgboost_forecast(df_ml, weather, date.today() + timedelta(days=1))
         assert isinstance(result, np.ndarray)
         assert result.dtype.kind == "f"

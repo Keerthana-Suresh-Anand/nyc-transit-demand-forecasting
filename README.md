@@ -40,7 +40,7 @@ Uses lag features (ridership 1, 2, 3, 7, 14 days prior), rolling statistics (14-
 Predictions are blended **50% SARIMAX + 50% XGBoost** (tunable in `src/utils/config.py`). Equal weights are a deliberate, evidence-based choice — see [Model evaluation](#model-evaluation) below.
 
 ### Champion selection
-Both models are evaluated on a held-out 30-day tail (`TEST_DAYS` in `config.py`, shared by the trainers and the gate), then refit on the full dataset before registration so the shipped model uses every observation. Each family is promoted to `Production` in the MLflow registry only if the new version's logged holdout MAE beats the current Production version of that family — so **both** SARIMAX and XGBoost live in `Production` simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
+Both models are evaluated on a held-out 30-day tail (`TEST_DAYS` in `config.py`, shared by the trainers and the gate), then refit on the full dataset before registration so the shipped model uses every observation. Each family's `production` alias in the MLflow registry is moved to the new version only if its logged holdout MAE beats the currently aliased version of that family — so **both** SARIMAX and XGBoost carry a `production` alias simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
 
 ---
 
@@ -106,7 +106,7 @@ MTA API + Visual Crossing API + Ticketmaster API
       mta_ml.parquet        sarima data + lag/rolling features for XGBoost
         │
         ▼
-    MLflow Registry         SARIMAX champion + XGBoost champion ("Production" stage)
+    MLflow Registry         SARIMAX champion + XGBoost champion (@production alias)
         │
         ▼
     S3 gold/forecasts/      forecast_{date}.parquet + latest_forecast.json

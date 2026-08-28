@@ -76,6 +76,9 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", f"sqlite:///{BASE_DIR}/ml
 MLFLOW_EXPERIMENT_NAME = "nyc_transit_forecasting"
 SARIMAX_MODEL_NAME = "sarimax_production"
 XGBOOST_MODEL_NAME = "xgboost_production"
+# Registry alias marking the serving version of each model — the modern
+# replacement for the deprecated "Production" stage.
+PRODUCTION_ALIAS = "production"
 
 # S3 keys — reports
 S3_REPORTS_PREFIX = "reports/"

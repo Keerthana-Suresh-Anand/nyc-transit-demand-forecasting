@@ -33,6 +33,7 @@ from src.utils.config import (
 from src.utils.features import iterative_xgb_predict, us_holidays_spanning
 from src.utils.lineage import read_gold_dvc_md5
 from src.utils.logger import get_logger
+from src.utils.registry import production_model_uri, resolve_production_version
 from src.utils.s3_helpers import (
     get_s3_client,
     list_s3_files,
@@ -56,8 +57,7 @@ def _load_production_scaler() -> MinMaxScaler | None:
     """
     try:
         client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
-        versions = client.search_model_versions(f"name='{SARIMAX_MODEL_NAME}'")
-        prod = next((v for v in versions if v.current_stage == "Production"), None)
+        prod = resolve_production_version(client, SARIMAX_MODEL_NAME)
         if prod is None:
             return None
         local_path = mlflow.artifacts.download_artifacts(
@@ -80,13 +80,8 @@ def _production_versions() -> dict:
     out: dict = {}
     for label, name in (("sarimax", SARIMAX_MODEL_NAME), ("xgboost", XGBOOST_MODEL_NAME)):
         try:
-            prod = [v for v in client.search_model_versions(f"name='{name}'")
-                    if v.current_stage == "Production"]
-            if prod:
-                v = max(prod, key=lambda x: int(x.version))
-                out[label] = {"version": int(v.version), "run_id": v.run_id}
-            else:
-                out[label] = None
+            v = resolve_production_version(client, name)
+            out[label] = {"version": int(v.version), "run_id": v.run_id} if v else None
         except Exception as e:
             logger.warning(f"Could not resolve Production version for {name}: {e}")
             out[label] = None
@@ -136,7 +131,8 @@ def sarimax_forecast(
     df_sarima: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date
 ) -> tuple[pd.Series, pd.DataFrame]:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/Production")
+    client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
+    model = mlflow.statsmodels.load_model(production_model_uri(client, SARIMAX_MODEL_NAME))
 
     scaler = _load_production_scaler()
     if scaler is None:
@@ -227,7 +223,8 @@ def _build_future_features(
 
 def xgboost_forecast(df_ml: pd.DataFrame, weather_fcst: pd.DataFrame, start_date: date) -> np.ndarray:
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    model = mlflow.xgboost.load_model(f"models:/{XGBOOST_MODEL_NAME}/Production")
+    client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
+    model = mlflow.xgboost.load_model(production_model_uri(client, XGBOOST_MODEL_NAME))
 
     # Serve through the same iterative feature builder the training holdout and
     # walk-forward use, so production features match what accuracy was validated on

@@ -13,6 +13,7 @@ Read-only w.r.t. MLflow and S3 — an analysis/reproducibility tool, run on dema
 not part of the scheduled pipelines. The statistical core (`block_bootstrap_mae_diff`,
 `summarize`) is pure and unit-tested; `run()` does the heavy model fitting.
 """
+import math
 import warnings
 
 import numpy as np
@@ -28,6 +29,7 @@ from src.training.train_sarimax import EXOG_COLS, _load_cached_order, find_best_
 from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
 from src.transformation import preprocess_ml
 from src.utils.config import (
+    CI_COVERAGE,
     FORECAST_HORIZON_DAYS,
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
@@ -73,6 +75,37 @@ def block_bootstrap_mae_diff(p1_blocks, p2_blocks, actual_blocks, n_boot=10000, 
         d2 = np.mean(np.abs(np.concatenate([p2_blocks[i] for i in idx]) - a))
         diffs[b] = d1 - d2
     return float(diffs.mean()), float(np.percentile(diffs, 2.5)), float(np.percentile(diffs, 97.5))
+
+
+def conformal_half_widths(
+    pred_blocks: list[np.ndarray], actual_blocks: list[np.ndarray], coverage: float,
+) -> dict:
+    """Split-conformal band half-widths for a forecast, one per horizon step.
+
+    Scaled conformal: each |residual| is normalized by its horizon step's mean
+    |residual|, the conformal quantile is taken over the pooled scores (all
+    origins × steps), and each step's half-width is quantile × that step's scale.
+    Pooling makes the quantile estimable (n = origins × horizon rather than just
+    origins per step) while the per-step scale keeps the band tracking how error
+    grows with lead time. Coverage is therefore marginal across the horizon, not
+    per-step — and the usual time-series caveat applies: residuals from rolled
+    origins are not strictly exchangeable, so the guarantee is approximate.
+    """
+    pred = np.vstack(pred_blocks)            # (n_origins, horizon)
+    actual = np.vstack(actual_blocks)
+    abs_resid = np.abs(pred - actual)
+    scale = np.maximum(abs_resid.mean(axis=0), 1e-9)
+    scores = (abs_resid / scale).ravel()
+    n = scores.size
+    k = min(math.ceil((n + 1) * coverage), n)
+    q = float(np.sort(scores)[k - 1])
+    return {
+        "coverage": float(coverage),
+        "quantile": q,
+        "n_scores": int(n),
+        "scale_by_horizon": [float(s) for s in scale],
+        "half_width_by_horizon": [float(q * s) for s in scale],
+    }
 
 
 def significance_verdict(lo: float, hi: float, p1: str, p2: str) -> str:
@@ -205,6 +238,9 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
     a_mat = np.vstack(blocks["actual"])
     mae_by_horizon = [float(v) for v in np.abs(ens_mat - a_mat).mean(axis=0)]
 
+    # Conformal band for the *ensemble* — the series production actually serves.
+    conformal = conformal_half_widths(ens50_blocks, blocks["actual"], CI_COVERAGE)
+
     return {
         "n_origins": blocks["n_origins"],
         "n_points": int(len(a)),
@@ -242,6 +278,7 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
         "weight_curve": curve,
         "significance": significance,
         "mae_by_horizon": mae_by_horizon,
+        "conformal": conformal,
     }
 
 
@@ -274,6 +311,14 @@ def format_report(results: dict) -> str:
     for key, sig in results["significance"].items():
         lines.append(f"  {key:<22} dMAE={sig['dmae']:+.4f}  "
                      f"CI[{sig['ci_lo']:+.4f}, {sig['ci_hi']:+.4f}]  -> {sig['verdict']}")
+    cf = results.get("conformal")
+    if cf:
+        hw = cf["half_width_by_horizon"]
+        lines.append("=" * 60)
+        lines.append(
+            f"Conformal band ({cf['coverage']:.0%} nominal, n={cf['n_scores']} scores): "
+            f"half-width day 1 +/-{hw[0]:.3f}M to day {len(hw)} +/-{hw[-1]:.3f}M"
+        )
     return "\n".join(lines)
 
 

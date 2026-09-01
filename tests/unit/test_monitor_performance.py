@@ -36,6 +36,59 @@ def _make_past_forecasts(gold: pd.DataFrame, n_rows: int = 10) -> pd.DataFrame:
     )
 
 
+class TestCiCoverage:
+    """Empirical coverage of the served band — the check that the interval means
+    what it claims. Rows without a finite band are excluded, so pre-conformal
+    forecasts can't contaminate the metric."""
+
+    def _fc_with_band(self, gold, lowers, uppers):
+        n = len(lowers)
+        actuals = gold["daily_ridership"].iloc[-n:] / 1_000_000
+        return pd.DataFrame({
+            "date": gold.index[-n:].date,
+            "ensemble_forecast_M": actuals.to_numpy(),
+            "ci_lower": lowers,
+            "ci_upper": uppers,
+        })
+
+    def test_full_coverage_when_band_contains_every_actual(self):
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-5:] / 1_000_000).to_numpy()
+        fc = self._fc_with_band(gold, acts - 1.0, acts + 1.0)
+        m = _compute_forecast_metrics(fc, gold)
+        assert m["ci_coverage_pct"] == 100.0
+        assert m["ci_coverage_n"] == 5
+
+    def test_zero_coverage_when_band_misses_every_actual(self):
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-5:] / 1_000_000).to_numpy()
+        fc = self._fc_with_band(gold, acts + 1.0, acts + 2.0)  # band entirely above
+        assert _compute_forecast_metrics(fc, gold)["ci_coverage_pct"] == 0.0
+
+    def test_partial_coverage_counts_only_hits(self):
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-4:] / 1_000_000).to_numpy()
+        lowers = [acts[0] - 1, acts[1] + 1, acts[2] - 1, acts[3] + 1]
+        uppers = [acts[0] + 1, acts[1] + 2, acts[2] + 1, acts[3] + 2]
+        m = _compute_forecast_metrics(self._fc_with_band(gold, lowers, uppers), gold)
+        assert m["ci_coverage_pct"] == 50.0
+
+    def test_metric_absent_when_no_band_columns(self):
+        gold = _make_gold(30)
+        m = _compute_forecast_metrics(_make_past_forecasts(gold, 5), gold)
+        assert "ci_coverage_pct" not in m
+        assert m["n_evaluated"] == 5  # MAE still computed
+
+    def test_nan_bands_excluded_from_coverage(self):
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-4:] / 1_000_000).to_numpy()
+        lowers = [acts[0] - 1, float("nan"), acts[2] - 1, float("nan")]
+        uppers = [acts[0] + 1, float("nan"), acts[2] + 1, float("nan")]
+        m = _compute_forecast_metrics(self._fc_with_band(gold, lowers, uppers), gold)
+        assert m["ci_coverage_n"] == 2
+        assert m["ci_coverage_pct"] == 100.0
+
+
 class TestComputeForecastMetrics:
     def test_returns_zero_evaluated_when_no_date_matches(self):
         gold = _make_gold(30)

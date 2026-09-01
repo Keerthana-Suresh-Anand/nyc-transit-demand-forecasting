@@ -16,6 +16,7 @@ from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 from src.utils.config import (
+    CI_COVERAGE,
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
     FORECAST_HORIZON_DAYS,
@@ -25,6 +26,7 @@ from src.utils.config import (
     PIPELINE_IMAGE_DIGEST,
     S3_FORECAST_PREFIX,
     S3_LATEST_FORECAST_KEY,
+    S3_WALKFORWARD_KEY,
     S3_WEATHER_FORECAST_PREFIX,
     SARIMAX_EXOG_COLS,
     SARIMAX_MODEL_NAME,
@@ -38,6 +40,7 @@ from src.utils.s3_helpers import (
     get_s3_client,
     list_s3_files,
     read_s3_csv,
+    read_s3_json,
     write_s3_json,
     write_s3_parquet,
 )
@@ -86,6 +89,41 @@ def _production_versions() -> dict:
             logger.warning(f"Could not resolve Production version for {name}: {e}")
             out[label] = None
     return out
+
+
+def _conformal_band(s3, ensemble_pred: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Ensemble prediction band from the walk-forward conformal half-widths.
+
+    The half-widths are calibrated on the backtest's ensemble residuals, so the
+    band belongs to the series actually served and widens with lead time. Falls
+    back to a flat band from the backtest's overall ensemble MAE if the conformal
+    block is missing (e.g. a walk-forward that failed on the last training run).
+    """
+    meta: dict = {"coverage": CI_COVERAGE, "method": "conformal_walkforward"}
+    try:
+        wf = read_s3_json(s3, S3_WALKFORWARD_KEY)
+    except Exception as e:
+        logger.warning(f"No walk-forward eval available for the CI band: {e}")
+        wf = {}
+
+    half = (wf.get("conformal") or {}).get("half_width_by_horizon")
+    if half and len(half) >= len(ensemble_pred):
+        hw = np.asarray(half[:len(ensemble_pred)], dtype=float)
+        meta["calibrated_on"] = wf.get("run_date")
+        meta["n_scores"] = (wf.get("conformal") or {}).get("n_scores")
+    else:
+        # Degraded band: a flat multiple of the backtest ensemble MAE. Explicitly
+        # labelled so the dashboard and coverage metric never present it as calibrated.
+        mae = (wf.get("mae") or {}).get("ensemble_50_50")
+        if mae is None:
+            logger.warning("No conformal widths and no backtest MAE — writing no CI band")
+            nan = np.full(len(ensemble_pred), np.nan)
+            return nan, nan, {**meta, "method": "unavailable"}
+        logger.warning("Conformal widths unavailable — falling back to a flat MAE-based band")
+        hw = np.full(len(ensemble_pred), 1.64 * float(mae))
+        meta["method"] = "fallback_flat_mae"
+
+    return ensemble_pred - hw, ensemble_pred + hw, meta
 
 
 def load_latest_weather_forecast(s3) -> pd.DataFrame:
@@ -253,7 +291,7 @@ def run() -> None:
     logger.info(f"Forecast start date: {start_date}")
 
     logger.info("Running SARIMAX forecast")
-    sarimax_pred, conf_int = sarimax_forecast(df_sarima, weather_fcst, start_date)
+    sarimax_pred, sarimax_conf_int = sarimax_forecast(df_sarima, weather_fcst, start_date)
 
     logger.info("Running XGBoost forecast")
     xgb_pred = xgboost_forecast(df_ml, weather_fcst, start_date)
@@ -261,13 +299,25 @@ def run() -> None:
     future_dates = pd.date_range(start=start_date, periods=FORECAST_DAYS)
     ensemble_pred = ENSEMBLE_SARIMAX_WEIGHT * sarimax_pred.values + ENSEMBLE_XGB_WEIGHT * xgb_pred
 
+    # Band for the ensemble — the series that is actually served. SARIMAX's own
+    # parametric interval is kept alongside it for reference, but it describes the
+    # SARIMAX mean, not the published ensemble line.
+    ci_lower, ci_upper, ci_meta = _conformal_band(s3, ensemble_pred)
+    logger.info(
+        f"CI band: {ci_meta['method']} @ {ci_meta['coverage']:.0%} — "
+        f"half-width day 1 +/-{(ci_upper[0] - ci_lower[0]) / 2:.3f}M, "
+        f"day {FORECAST_DAYS} +/-{(ci_upper[-1] - ci_lower[-1]) / 2:.3f}M"
+    )
+
     df_forecast = pd.DataFrame({
         "date": future_dates,
         "sarimax_forecast_M": sarimax_pred.values,
         "xgboost_forecast_M": xgb_pred,
         "ensemble_forecast_M": ensemble_pred,
-        "ci_lower": conf_int.iloc[:, 0].values,
-        "ci_upper": conf_int.iloc[:, 1].values,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "sarimax_ci_lower": sarimax_conf_int.iloc[:, 0].values,
+        "sarimax_ci_upper": sarimax_conf_int.iloc[:, 1].values,
     })
 
     run_date = str(date.today())
@@ -279,6 +329,7 @@ def run() -> None:
         "forecast_horizon_days": FORECAST_DAYS,
         "sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
         "xgboost_weight": ENSEMBLE_XGB_WEIGHT,
+        "ci": ci_meta,
         "model_versions": _production_versions(),
         "gold_sarima_dvc_md5": read_gold_dvc_md5(),
         "image_digest": PIPELINE_IMAGE_DIGEST,

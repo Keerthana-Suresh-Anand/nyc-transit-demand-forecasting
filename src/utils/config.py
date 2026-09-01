@@ -36,6 +36,11 @@ MTA_LAG_DAYS = 6
 # pipeline, the walk-forward backtest, and the weather forecast fetch below.
 FORECAST_HORIZON_DAYS = 14
 
+# Nominal coverage of the served forecast's uncertainty band. Calibrated by
+# conformal quantiles on walk-forward residuals (~154 pooled scores): 0.90 is
+# comfortably estimable there, where a 95% band would ride the unstable tail.
+CI_COVERAGE = 0.90
+
 # Weather API
 WEATHER_LOCATION = "40.7812,-73.9665"  # Central Park, NYC
 WEATHER_BASE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"

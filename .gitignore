@@ -7,6 +7,7 @@
 # Claude Code local memory and config (personal tooling, not part of the project)
 .claude/
 CLAUDE.md
+DESIGN_NOTES.md
 
 # Data files (DVC-tracked; commit .dvc files instead)
 data/silver/*.parquet

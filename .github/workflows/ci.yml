@@ -10,9 +10,6 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# Least privilege, pinned in the workflow rather than relying on the repo-wide
-# default staying read-only. Publishing goes to Docker Hub via its own secrets,
-# so nothing here needs to write to the repo.
 permissions:
   contents: read
 
@@ -35,9 +32,7 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # The dashboard extra is installed so the dashboard's imports are actually
-      # resolved here (tests/unit/test_dashboard_imports.py). Without it, a stale
-      # import in app.py passes CI and only fails on the live Streamlit app.
+      # dashboard extra: lets test_dashboard_imports.py resolve app.py's imports
       - name: Install dependencies
         run: pip install -e ".[pipeline,dashboard,dev]"
 

@@ -8,6 +8,7 @@
 .claude/
 CLAUDE.md
 DESIGN_NOTES.md
+ARCHITECTURE_REVIEW.md
 
 # Data files (DVC-tracked; commit .dvc files instead)
 data/silver/*.parquet

@@ -151,7 +151,7 @@ A single scrollable page — accessible at the Streamlit Community Cloud URL wit
 > `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`. The dashboard Docker image installs from the same `requirements.txt`, so the published container is a faithful replica of the live deployment — it isn't used to serve the dashboard today (Streamlit Cloud hosts it for free), but it keeps the app portable to any container platform (Cloud Run, ECS) if that changes.
 
 - **Sidebar** — tech stack, pipeline health badges with last-run dates, and the active ensemble weights
-- **Latest Ridership Forecast** — historical actuals + 14-day ensemble forecast with confidence intervals, individual SARIMAX and XGBoost lines, a shaded "MTA data lag" zone, and a today marker; captioned with the forecast's generation date and window
+- **Latest Ridership Forecast** — historical actuals + 14-day ensemble forecast with a 90% conformal prediction band, individual SARIMAX and XGBoost lines, a shaded "MTA data lag" zone, and a today marker; captioned with the forecast's generation date and window
 - **Weather as a Predictive Signal** — temperature-vs-ridership and precipitation-vs-ridership scatter plots with trend lines, demonstrating the weather signal directly
 - **Model Accuracy** — predicted-vs-actual scatter against a perfect-forecast diagonal, XGBoost SHAP feature importance, and MAPE / MAE / forecast-run-count metrics
 
@@ -206,7 +206,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 - **Forward reach:** the MTA publishes ridership with a ~1–2 week lag, so only the latter part of each 14-day forecast is genuinely ahead of today — the earlier days fill the gap to the last published week.
 - **One-off shocks:** the models learn regular patterns (weekly seasonality, holidays, weather) and can't anticipate service disruptions, special events, or structural breaks until they appear in the data.
 - **Evaluation power:** the walk-forward backtest uses a fixed 90-day / 11-origin window (production-faithful — it mirrors how the model serves between retrains), so its confidence intervals are wide and it spans only one season. A longer, multi-season window with a per-origin refit would tighten the CIs and could justify an asymmetric ensemble weight (currently 50/50 because the two models are statistically indistinguishable on this window).
-- **Ensemble uncertainty:** the forecast is a point estimate — a calibrated prediction band around the ensemble is planned (the shipped SARIMAX interval isn't the ensemble's).
+- **Ensemble uncertainty:** the forecast ships a 90% conformal prediction band calibrated on the backtest's ensemble residuals, and its empirical coverage is tracked daily. Two known limits: coverage is *marginal across the 14-day horizon* rather than per-step (scores are pooled to stay estimable at 11 origins), and conformal's guarantee is approximate here because rolled-origin residuals aren't strictly exchangeable.
 - **Granularity:** daily city-wide is the scope; line- or station-level forecasting is a natural extension (a different, far more data- and compute-hungry problem).
 - **Event features:** NYC events (concerts, sports) are shown as dashboard context but not yet used as model features — too sparse to help a daily city-wide model.
 - **MLflow hosting:** runs on local SQLite synced to S3; a production deployment would use a shared tracking server on PostgreSQL/RDS.

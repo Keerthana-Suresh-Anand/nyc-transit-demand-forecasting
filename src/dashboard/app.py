@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.dashboard.utils.data_loader import (
+    load_drift_report,
     load_forecast,
     load_history,
     load_past_forecasts_vs_actuals,
@@ -114,6 +115,7 @@ with st.spinner("Loading dashboard data..."):
     sarimax_coef = load_sarimax_coefficients()
     baseline = load_training_baseline()
     walkforward = load_walkforward()
+    drift_report = load_drift_report()
 
 
 def _accuracy_view(wf: dict | None, bl: dict | None) -> dict | None:
@@ -339,6 +341,25 @@ fig.add_trace(go.Scatter(
     marker=dict(size=5),
 ))
 
+# Conformal prediction band around the ensemble. Drawn only when the served band
+# is the calibrated one — older forecasts carry a SARIMAX-centered interval that
+# does not describe this line.
+_ci_meta = forecast_data.get("ci") or {}
+_has_band = (
+    _ci_meta.get("method") == "conformal_walkforward"
+    and {"ci_lower", "ci_upper"}.issubset(fc_rows.columns)
+    and fc_rows[["ci_lower", "ci_upper"]].notna().all().all()
+)
+if _has_band:
+    _band_x = list(fc_rows["date"]) + list(fc_rows["date"][::-1])
+    _band_y = list(fc_rows["ci_upper"]) + list(fc_rows["ci_lower"][::-1])
+    fig.add_trace(go.Scatter(
+        x=_band_x, y=_band_y,
+        fill="toself", fillcolor="rgba(230,57,70,0.13)",
+        line=dict(width=0), hoverinfo="skip",
+        name=f"{_ci_meta.get('coverage', 0.9):.0%} interval",
+    ))
+
 last_actual_date = history.index.max().date()
 today_date = date.today()
 
@@ -384,12 +405,25 @@ fig.update_layout(
 )
 _show(fig)
 
+if _has_band:
+    _cov = _ci_meta.get("coverage", 0.9)
+    st.caption(
+        f"Shaded band = {_cov:.0%} conformal prediction interval, calibrated on the "
+        "walk-forward backtest's ensemble residuals and widening with lead time. "
+        "Coverage is tracked daily against actuals (see Model Accuracy)."
+    )
+
 # Per-day numbers behind the forward-7 KPI — the concrete deliverable.
 st.markdown(f"**Daily forecast · {fwd7_range}**")
 _daily = pd.DataFrame({
     "Date": fwd7["date"].dt.strftime("%a, %b %d"),
     "Forecast (M)": fwd7["ensemble_forecast_M"].round(2),
 })
+if _has_band:
+    _daily[f"{_ci_meta.get('coverage', 0.9):.0%} interval (M)"] = [
+        f"{lo:.2f} – {hi:.2f}"
+        for lo, hi in zip(fwd7["ci_lower"], fwd7["ci_upper"], strict=True)
+    ]
 st.dataframe(_daily, hide_index=True, use_container_width=True)
 
 st.divider()
@@ -486,6 +520,19 @@ if acc:
         _show(fig_bl)
         st.caption("Seasonal-naive (same weekday last week) is the benchmark to beat — a model "
                    "must clear it to earn its complexity.")
+
+    # Interval calibration: does the served band cover actuals as often as it claims?
+    _cov_pct = (drift_report or {}).get("ci_coverage_pct")
+    if _cov_pct is not None:
+        _nominal = (drift_report or {}).get("ci_nominal_pct", 90.0)
+        _n_cov = (drift_report or {}).get("ci_coverage_n", 0)
+        st.markdown("**Does the prediction interval hold up?**")
+        st.caption(
+            f"• Empirical coverage: **{_cov_pct:.0f}%** of {_n_cov} past forecast-days "
+            f"landed inside the band (nominal {_nominal:.0f}%). A calibrated interval "
+            "tracks its nominal rate — well below means over-confident, well above means "
+            "needlessly wide."
+        )
 
     # Bootstrap significance — only the walk-forward has enough origins to resample.
     if acc.get("significance"):

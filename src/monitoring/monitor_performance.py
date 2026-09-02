@@ -16,6 +16,7 @@ import pandas as pd
 
 from src.evaluation.drift_detector import compute_psi
 from src.utils.config import (
+    CI_COVERAGE,
     GOLD_SARIMA_LOCAL_PATH,
     MAE_RETRAIN_MULTIPLIER,
     PSI_CRITICAL_THRESHOLD,
@@ -84,21 +85,38 @@ def _compute_forecast_metrics(
         if ts in gold.index:
             actual_M = gold.loc[ts, "daily_ridership"] / 1_000_000
             pred_M = row["ensemble_forecast_M"]
-            records.append({"actual_M": actual_M, "pred_M": pred_M,
-                            "error_M": pred_M - actual_M})
+            records.append({
+                "actual_M": actual_M, "pred_M": pred_M, "error_M": pred_M - actual_M,
+                "ci_lower": row.get("ci_lower"), "ci_upper": row.get("ci_upper"),
+            })
 
     if not records:
         return {"n_evaluated": 0}
 
     errors = np.array([r["error_M"] for r in records])
     actuals = np.array([r["actual_M"] for r in records])
-    mae = float(np.mean(np.abs(errors)))
-    mape = float(np.mean(np.abs(errors / actuals)) * 100)
-    return {
+    metrics = {
         "n_evaluated": len(records),
-        "rolling_mae_M": mae,
-        "rolling_mape_pct": mape,
+        "rolling_mae_M": float(np.mean(np.abs(errors))),
+        "rolling_mape_pct": float(np.mean(np.abs(errors / actuals)) * 100),
     }
+
+    # Empirical coverage of the served band: the check that the interval means what
+    # it claims. Only scores rows whose band is present and finite — forecasts
+    # written before the conformal band shipped carry a SARIMAX-centered interval
+    # that would make this metric describe a band no longer served.
+    covered, n_band = 0, 0
+    for r in records:
+        lo, hi = r["ci_lower"], r["ci_upper"]
+        if lo is None or hi is None or not (np.isfinite(lo) and np.isfinite(hi)):
+            continue
+        n_band += 1
+        covered += int(lo <= r["actual_M"] <= hi)
+    if n_band:
+        metrics["ci_coverage_pct"] = float(covered / n_band * 100)
+        metrics["ci_coverage_n"] = n_band
+        metrics["ci_nominal_pct"] = float(CI_COVERAGE * 100)
+    return metrics
 
 
 def _last_retrain_trigger(s3) -> date | None:

@@ -151,6 +151,58 @@ class TestXGBoostForecast:
         assert result.dtype.kind == "f"
 
 
+class TestConformalBand:
+    """The served band must come from the walk-forward's ensemble residuals, and
+    degrade visibly (never silently) when that calibration is unavailable."""
+
+    def _band(self, wf_json, pred=None):
+        from src.prediction.generate_forecast import _conformal_band
+
+        pred = np.full(3, 3.0) if pred is None else pred
+        s3 = MagicMock()
+        with patch("src.prediction.generate_forecast.read_s3_json", return_value=wf_json):
+            return _conformal_band(s3, pred), pred
+
+    def test_uses_conformal_half_widths_per_horizon(self):
+        wf = {"run_date": "2026-09-01",
+              "conformal": {"half_width_by_horizon": [0.1, 0.2, 0.3], "n_scores": 154}}
+        (lo, hi, meta), pred = self._band(wf)
+        assert meta["method"] == "conformal_walkforward"
+        assert lo == pytest.approx(pred - np.array([0.1, 0.2, 0.3]))
+        assert hi == pytest.approx(pred + np.array([0.1, 0.2, 0.3]))
+
+    def test_band_is_centered_on_the_ensemble(self):
+        wf = {"conformal": {"half_width_by_horizon": [0.1, 0.25, 0.4]}}
+        (lo, hi, _), pred = self._band(wf)
+        assert (lo + hi) / 2 == pytest.approx(pred)
+
+    def test_falls_back_to_flat_mae_band_without_conformal_block(self):
+        (lo, hi, meta), pred = self._band({"mae": {"ensemble_50_50": 0.2}})
+        assert meta["method"] == "fallback_flat_mae"
+        width = hi - lo
+        assert width[0] == pytest.approx(width[-1])  # flat, not horizon-scaled
+
+    def test_marks_unavailable_when_nothing_to_calibrate_on(self):
+        (lo, hi, meta), _ = self._band({})
+        assert meta["method"] == "unavailable"
+        assert np.isnan(lo).all() and np.isnan(hi).all()
+
+    def test_shorter_calibration_than_horizon_falls_back(self):
+        # 2 half-widths can't cover a 3-day horizon — must not silently truncate
+        wf = {"conformal": {"half_width_by_horizon": [0.1, 0.2]}, "mae": {"ensemble_50_50": 0.2}}
+        (_, _, meta), _ = self._band(wf)
+        assert meta["method"] == "fallback_flat_mae"
+
+    def test_s3_failure_degrades_instead_of_raising(self):
+        from src.prediction.generate_forecast import _conformal_band
+
+        with patch("src.prediction.generate_forecast.read_s3_json",
+                   side_effect=RuntimeError("no such key")):
+            lo, hi, meta = _conformal_band(MagicMock(), np.full(3, 3.0))
+        assert meta["method"] == "unavailable"
+        assert np.isnan(lo).all()
+
+
 def _make_sarima_df(periods: int) -> pd.DataFrame:
     """Minimal gold-SARIMA frame: daily ridership + the exog columns, daily freq."""
     rng = np.random.default_rng(42)

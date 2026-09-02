@@ -1,0 +1,39 @@
+# Trims the build context shipped to the Docker builder. The images themselves
+# were already clean (both Dockerfiles COPY explicit paths) — this stops the rest
+# of the checkout being uploaded on every build and busting the layer cache.
+#
+# Must NOT exclude anything the Dockerfiles copy:
+#   pipeline  — requirements/pipeline.lock, pyproject.toml, src/, pipelines/
+#   dashboard — pyproject.toml, requirements.txt, src/, .streamlit/
+
+.git/
+.github/
+.dvc/
+.claude/
+
+# Data + model state (pulled at runtime from S3/DVC, never baked into an image)
+data/
+mlruns/
+mlflow.db
+reports/
+logs/
+
+# Dev-only material
+tests/
+notebooks/
+scripts/
+
+# Python / tooling caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# Local env + editor
+.env
+.vscode/

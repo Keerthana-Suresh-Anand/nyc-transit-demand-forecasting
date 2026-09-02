@@ -10,6 +10,12 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Least privilege, pinned in the workflow rather than relying on the repo-wide
+# default staying read-only. Publishing goes to Docker Hub via its own secrets,
+# so nothing here needs to write to the repo.
+permissions:
+  contents: read
+
 # Supersede stale PR runs (each new push cancels the previous run for that ref),
 # but never cancel a main-branch run mid-flight so an in-progress image publish
 # always completes. Grouped per-ref so PRs and main don't interrupt each other.
@@ -20,6 +26,7 @@ concurrency:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -28,8 +35,11 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # The dashboard extra is installed so the dashboard's imports are actually
+      # resolved here (tests/unit/test_dashboard_imports.py). Without it, a stale
+      # import in app.py passes CI and only fails on the live Streamlit app.
       - name: Install dependencies
-        run: pip install -e ".[pipeline,dev]"
+        run: pip install -e ".[pipeline,dashboard,dev]"
 
       - name: Lint
         run: ruff check src/ tests/ pipelines/
@@ -46,6 +56,7 @@ jobs:
     # a feature branch would push :latest/:stable images built from unmerged code.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

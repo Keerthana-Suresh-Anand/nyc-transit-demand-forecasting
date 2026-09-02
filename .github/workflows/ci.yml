@@ -32,7 +32,6 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      # dashboard extra: lets test_dashboard_imports.py resolve app.py's imports
       - name: Install dependencies
         run: pip install -e ".[pipeline,dashboard,dev]"
 

@@ -19,6 +19,26 @@ _REQUIRED_MTA_COLS = {"transit_date", "daily_ridership"}
 _REQUIRED_WEATHER_COLS = {"datetime", "temp", "precip", "snow"}
 
 
+def join_weather(df_mta: pd.DataFrame, df_weather: pd.DataFrame) -> pd.DataFrame:
+    """Attach daily weather to station-level ridership rows. Left join — a missing
+    weather day must not drop the ridership it belongs to."""
+    merged = pd.merge(
+        df_mta, df_weather, left_on="transit_date", right_on="datetime", how="left"
+    )
+    return merged.drop(columns=["datetime"], errors="ignore")
+
+
+def combine_silver(df_old: pd.DataFrame | None, df_new: pd.DataFrame) -> pd.DataFrame:
+    """Append new rows to existing silver, then dedupe and sort by date.
+
+    Dedupe is on the whole row: a re-fetched window produces byte-identical rows,
+    while a genuinely revised value differs and is kept (both copies) rather than
+    silently overwriting.
+    """
+    combined = df_new if df_old is None else pd.concat([df_old, df_new], ignore_index=True)
+    return combined.drop_duplicates().sort_values("transit_date").reset_index(drop=True)
+
+
 def run() -> None:
     logger.info("Starting silver merge")
     s3 = get_s3_client()
@@ -75,18 +95,13 @@ def run() -> None:
     relevant_dates = df_new_mta["transit_date"].unique()
     df_weather = df_weather[df_weather["datetime"].isin(relevant_dates)]
 
-    df_merged = pd.merge(
-        df_new_mta, df_weather, left_on="transit_date", right_on="datetime", how="left"
-    )
-    df_merged.drop(columns=["datetime"], errors="ignore", inplace=True)
+    df_merged = join_weather(df_new_mta, df_weather)
 
     if incremental:
         df_old = pd.read_parquet(SILVER_LOCAL_PATH)
-        df_final = pd.concat([df_old, df_merged], ignore_index=True)
+        df_final = combine_silver(df_old, df_merged)
     else:
-        df_final = df_merged
-
-    df_final = df_final.drop_duplicates().sort_values("transit_date").reset_index(drop=True)
+        df_final = combine_silver(None, df_merged)
 
     SILVER_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     df_final.to_parquet(SILVER_LOCAL_PATH, index=False, engine="pyarrow")

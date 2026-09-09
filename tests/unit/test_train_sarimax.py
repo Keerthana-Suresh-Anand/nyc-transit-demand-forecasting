@@ -1,8 +1,13 @@
 """Tests for SARIMAX training helpers."""
+from datetime import date, timedelta
+from unittest.mock import MagicMock
+
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
-from src.training.train_sarimax import EXOG_COLS, scale_exog
+import src.training.train_sarimax as ts
+from src.training.train_sarimax import EXOG_COLS, resolve_order, scale_exog
+from src.utils.config import SARIMAX_RESEARCH_DAYS
 
 
 def _make_exog(periods: int = 100) -> pd.DataFrame:
@@ -16,6 +21,59 @@ def _make_exog(periods: int = 100) -> pd.DataFrame:
         },
         index=dates,
     )
+
+
+class TestResolveOrder:
+    """The pinned-order cache. If the freshness check is wrong, production
+    silently re-searches auto_arima every run — the exact thing the cache exists
+    to prevent — and nothing else in the system would report it.
+    """
+
+    def _patch(self, monkeypatch, cached, search_result=((2, 1, 2), (1, 0, 1, 7))):
+        """Stub the cache read/write and the (expensive) auto_arima search."""
+        saved = {}
+        monkeypatch.setattr(ts, "_load_cached_order", lambda s3: cached)
+        monkeypatch.setattr(ts, "_save_cached_order",
+                            lambda s3, o, so: saved.update(order=o, seasonal=so))
+        monkeypatch.setattr(ts, "find_best_params", lambda y, x: search_result)
+        return saved
+
+    def test_fresh_cache_is_reused_without_searching(self, monkeypatch):
+        cached = ((1, 0, 1), (2, 1, 0, 7), date.today() - timedelta(days=1))
+        saved = self._patch(monkeypatch, cached)
+        order, seasonal, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
+        assert (order, seasonal) == ((1, 0, 1), (2, 1, 0, 7))
+        assert source == "cached"
+        assert saved == {}  # nothing re-pinned
+
+    def test_cache_miss_searches_and_pins(self, monkeypatch):
+        saved = self._patch(monkeypatch, None)
+        order, seasonal, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
+        assert (order, seasonal) == ((2, 1, 2), (1, 0, 1, 7))
+        assert source == "auto_arima_stepwise"
+        assert saved == {"order": (2, 1, 2), "seasonal": (1, 0, 1, 7)}
+
+    def test_stale_cache_triggers_research(self, monkeypatch):
+        stale = date.today() - timedelta(days=SARIMAX_RESEARCH_DAYS + 1)
+        saved = self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), stale))
+        order, _, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
+        assert source == "auto_arima_stepwise"
+        assert order == (2, 1, 2)          # the freshly searched order, not the cached one
+        assert saved["order"] == (2, 1, 2)  # and it is re-pinned
+
+    def test_boundary_day_still_counts_as_fresh(self, monkeypatch):
+        """Exactly SARIMAX_RESEARCH_DAYS - 1 old is still inside the window."""
+        edge = date.today() - timedelta(days=SARIMAX_RESEARCH_DAYS - 1)
+        self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), edge))
+        _, _, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
+        assert source == "cached"
+
+    def test_expiry_day_triggers_research(self, monkeypatch):
+        """Exactly SARIMAX_RESEARCH_DAYS old is expired (age < N is the rule)."""
+        edge = date.today() - timedelta(days=SARIMAX_RESEARCH_DAYS)
+        self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), edge))
+        _, _, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
+        assert source == "auto_arima_stepwise"
 
 
 class TestScaleExog:

@@ -7,9 +7,6 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: read
 
@@ -68,8 +65,7 @@ jobs:
       #   :latest   newest build (moving pointer, informational)
       #   :stable   what the scheduled pipelines actually run — promoted here only
       #             after lint + unit tests pass. Rollback: retag an older sha as
-      #             stable (docker buildx imagetools create -t ...:stable ...:<sha>)
-      #             without touching latest or waiting for a new build.
+      #             stable without touching latest or waiting for a new build.
       - name: Build and push pipeline image
         uses: docker/build-push-action@v5
         with:

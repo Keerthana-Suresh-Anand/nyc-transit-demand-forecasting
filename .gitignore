@@ -9,6 +9,7 @@
 CLAUDE.md
 DESIGN_NOTES.md
 ARCHITECTURE_REVIEW.md
+ARTICLE_IDEAS.md
 
 # Data files (DVC-tracked; commit .dvc files instead)
 data/silver/*.parquet

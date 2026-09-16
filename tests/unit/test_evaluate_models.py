@@ -6,6 +6,7 @@ so re-forecasting them would be in-sample). Tests patch the MLflow-facing helper
 directly so they exercise the gating/ensemble logic without a real registry.
 """
 import contextlib
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -26,16 +27,22 @@ def _holdout(pred: np.ndarray, actual: np.ndarray) -> pd.DataFrame:
 
 
 @contextlib.contextmanager
-def _patched(*, versions: dict, mae: dict, holdout: dict | None = None):
+def _patched(*, versions: dict, mae: dict, holdout: dict | None = None,
+             prod_after: dict | None = None):
     """Patch the gate's MLflow-facing helpers.
 
-    versions: {model_name: (new_ver, prod_ver)}
-    mae:      {(model_name, version): mae}
-    holdout:  {model_name: DataFrame}; defaults to a flat 30-day window per family.
+    versions:   {model_name: (new_ver, prod_ver)}
+    mae:        {(model_name, version): mae}
+    holdout:    {model_name: DataFrame}; defaults to a flat 30-day window per family.
+    prod_after: {model_name: version} — what resolve_production_version reports
+                after the gates ran; defaults to each family's candidate version
+                (i.e. candidates were promoted, baseline and production aligned).
     """
     if holdout is None:
         flat = _holdout(np.full(30, 0.1), np.full(30, 0.1))
         holdout = {SARIMAX_MODEL_NAME: flat, XGBOOST_MODEL_NAME: flat}
+    if prod_after is None:
+        prod_after = {name: vers[0] for name, vers in versions.items()}
 
     def latest_prod(_client, name):
         return versions.get(name, (None, None))
@@ -46,11 +53,16 @@ def _patched(*, versions: dict, mae: dict, holdout: dict | None = None):
     def load_holdout(_client, name, _version):
         return holdout.get(name)
 
+    def resolve_prod(_client, name):
+        ver = prod_after.get(name)
+        return SimpleNamespace(version=str(ver)) if ver is not None else None
+
     with patch("src.evaluation.evaluate_models.mlflow"), \
          patch("src.evaluation.evaluate_models.MlflowClient"), \
          patch("src.evaluation.evaluate_models._latest_and_prod_versions", side_effect=latest_prod), \
          patch("src.evaluation.evaluate_models._logged_metric", side_effect=logged_metric), \
          patch("src.evaluation.evaluate_models._load_holdout", side_effect=load_holdout), \
+         patch("src.evaluation.evaluate_models.resolve_production_version", side_effect=resolve_prod), \
          patch("src.evaluation.evaluate_models._promote") as mock_promote, \
          patch("src.evaluation.evaluate_models.get_s3_client"), \
          patch("src.evaluation.evaluate_models.write_s3_json") as mock_write:
@@ -170,3 +182,44 @@ class TestEnsembleBaseline:
         ) as (_, mock_write):
             run()
         mock_write.assert_not_called()
+
+
+class TestBaselineVersionLineage:
+    """The baseline's ensemble MAE always comes from the freshly trained candidates,
+    so the JSON must record both the candidate versions and the post-gate Production
+    versions — and warn when they differ (a candidate failed its gate)."""
+
+    def test_records_versions_when_aligned(self):
+        with _patched(
+            versions={SARIMAX_MODEL_NAME: (2, 1), XGBOOST_MODEL_NAME: (2, 1)},
+            mae={
+                (SARIMAX_MODEL_NAME, 2): 0.04, (SARIMAX_MODEL_NAME, 1): 0.06,
+                (XGBOOST_MODEL_NAME, 2): 0.04, (XGBOOST_MODEL_NAME, 1): 0.06,
+            },
+        ) as (_, mock_write):
+            run()
+        written = mock_write.call_args[0][1]
+        assert written["baseline_versions"] == {"sarimax": 2, "xgboost": 2}
+        assert written["production_versions"] == {"sarimax": 2, "xgboost": 2}
+
+    def test_warns_when_candidate_not_promoted(self):
+        # XGBoost candidate v2 loses its gate → Production keeps v1, while the
+        # baseline ensemble MAE was computed from v2's holdout predictions.
+        with _patched(
+            versions={SARIMAX_MODEL_NAME: (2, 1), XGBOOST_MODEL_NAME: (2, 1)},
+            mae={
+                (SARIMAX_MODEL_NAME, 2): 0.04, (SARIMAX_MODEL_NAME, 1): 0.06,
+                (XGBOOST_MODEL_NAME, 2): 0.08, (XGBOOST_MODEL_NAME, 1): 0.05,
+            },
+            prod_after={SARIMAX_MODEL_NAME: 2, XGBOOST_MODEL_NAME: 1},
+        ) as (_, mock_write):
+            with patch("src.evaluation.evaluate_models.logger") as mock_logger:
+                run()
+
+        written = mock_write.call_args[0][1]
+        assert written["baseline_versions"] == {"sarimax": 2, "xgboost": 2}
+        assert written["production_versions"] == {"sarimax": 2, "xgboost": 1}
+        mismatch_warnings = [
+            c for c in mock_logger.warning.call_args_list if "not live" in c.args[0]
+        ]
+        assert len(mismatch_warnings) == 1

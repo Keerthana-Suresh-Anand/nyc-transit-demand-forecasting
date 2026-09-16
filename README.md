@@ -140,7 +140,7 @@ MTA API + Visual Crossing API + Ticketmaster API
 
 PSI is **informational only — it never triggers retraining**. Weather features drift with the seasons, so PSI fires false alarms every spring and fall; retraining on those would churn models without improving accuracy.
 
-**Rolling MAE is the sole retrain trigger:** if rolling forecast MAE exceeds 1.5× the training-time MAE, a retrain flag is written and the training pipeline is dispatched — subject to a 7-day cooldown circuit breaker so persistent degradation can't re-dispatch training on every daily run.
+**Rolling MAE is the sole retrain trigger:** if rolling forecast MAE exceeds 1.5× the baseline ensemble MAE, a retrain flag is written and the training pipeline is dispatched — subject to a 7-day cooldown circuit breaker so persistent degradation can't re-dispatch training on every daily run. The baseline is the walk-forward ensemble MAE — measured at the same 14-day horizon and weekly re-anchor cadence as the live metric — falling back to the 30-day training holdout when no walk-forward result exists.
 
 ---
 

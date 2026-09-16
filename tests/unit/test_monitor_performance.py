@@ -8,9 +8,15 @@ import pytest
 from src.monitoring.monitor_performance import (
     _compute_forecast_metrics,
     _compute_psi_scores,
+    load_baseline_mae,
     run,
 )
-from src.utils.config import PSI_CRITICAL_THRESHOLD, PSI_MODERATE_THRESHOLD
+from src.utils.config import (
+    PSI_CRITICAL_THRESHOLD,
+    PSI_MODERATE_THRESHOLD,
+    S3_TRAINING_BASELINE_KEY,
+    S3_WALKFORWARD_KEY,
+)
 
 
 def _make_gold(periods=120) -> pd.DataFrame:
@@ -34,6 +40,52 @@ def _make_past_forecasts(gold: pd.DataFrame, n_rows: int = 10) -> pd.DataFrame:
             "ensemble_forecast_M": [3.0] * n_rows,
         }
     )
+
+
+class TestLoadBaselineMae:
+    """Baseline resolution: prefer the walk-forward ensemble MAE (same horizon and
+    cadence as the live rolling metric, version-independent); fall back to the
+    30-day training holdout; disable the threshold check when neither exists."""
+
+    def _reader(self, files: dict):
+        def read(_s3, key):
+            if key in files:
+                return files[key]
+            raise FileNotFoundError(key)
+        return read
+
+    def test_prefers_walkforward_when_present(self):
+        files = {
+            S3_WALKFORWARD_KEY: {"run_date": "2026-08-05", "mae": {"ensemble_50_50": 0.216}},
+            S3_TRAINING_BASELINE_KEY: {"ensemble_mae": 0.303},
+        }
+        with patch("src.monitoring.monitor_performance.read_s3_json", side_effect=self._reader(files)):
+            mae, source = load_baseline_mae(MagicMock())
+        assert mae == pytest.approx(0.216)
+        assert source == "walkforward"
+
+    def test_falls_back_when_walkforward_missing(self):
+        files = {S3_TRAINING_BASELINE_KEY: {"ensemble_mae": 0.303}}
+        with patch("src.monitoring.monitor_performance.read_s3_json", side_effect=self._reader(files)):
+            mae, source = load_baseline_mae(MagicMock())
+        assert mae == pytest.approx(0.303)
+        assert source == "training_holdout_30d"
+
+    def test_falls_back_when_walkforward_malformed(self):
+        files = {
+            S3_WALKFORWARD_KEY: {"run_date": "2026-08-05"},   # no "mae" section
+            S3_TRAINING_BASELINE_KEY: {"ensemble_mae": 0.303},
+        }
+        with patch("src.monitoring.monitor_performance.read_s3_json", side_effect=self._reader(files)):
+            mae, source = load_baseline_mae(MagicMock())
+        assert mae == pytest.approx(0.303)
+        assert source == "training_holdout_30d"
+
+    def test_disabled_when_no_baseline_exists(self):
+        with patch("src.monitoring.monitor_performance.read_s3_json", side_effect=self._reader({})):
+            mae, source = load_baseline_mae(MagicMock())
+        assert mae is None
+        assert source is None
 
 
 class TestCiCoverage:
@@ -221,6 +273,20 @@ class TestMonitorRun:
             result = run(training_mae=0.5)
 
         assert result["retrain_recommended"] is True
+
+    def test_report_records_baseline_source(self, monkeypatch):
+        gold = _make_gold(120)
+        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+
+        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
+             patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=None), \
+             patch("src.monitoring.monitor_performance._compute_psi_scores",
+                   return_value={"temp": 0.01}), \
+             patch("src.monitoring.monitor_performance.write_s3_json"):
+            result = run(training_mae=0.216, baseline_source="walkforward")
+
+        assert result["training_mae_M"] == pytest.approx(0.216)
+        assert result["baseline_source"] == "walkforward"
 
     def test_report_includes_psi_scores(self, monkeypatch):
         gold = _make_gold(120)

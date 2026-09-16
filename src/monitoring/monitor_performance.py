@@ -27,6 +27,8 @@ from src.utils.config import (
     S3_GOLD_SARIMA_KEY,
     S3_RETRAIN_FLAG_KEY,
     S3_RETRAIN_HISTORY_KEY,
+    S3_TRAINING_BASELINE_KEY,
+    S3_WALKFORWARD_KEY,
 )
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
@@ -44,6 +46,36 @@ FEATURE_COLS = ["temp", "precip", "snow"]
 REFERENCE_DAYS = 90
 RECENT_DAYS = 14
 N_FORECAST_FILES = 8   # how many past weekly forecasts to evaluate
+
+
+def load_baseline_mae(s3) -> tuple[float | None, str | None]:
+    """Resolve the ensemble-MAE baseline that anchors the retrain threshold.
+
+    Prefers the walk-forward ensemble MAE: it is measured the same way the live
+    rolling metric is (14-day horizon, weekly re-anchor) and is independent of
+    which model versions passed the promotion gate. Falls back to the 30-day
+    single-holdout ensemble MAE from the training baseline (the walk-forward is
+    best-effort and may be absent), else (None, None) — which disables the
+    threshold check. Returns (mae, source).
+    """
+    try:
+        wf = read_s3_json(s3, S3_WALKFORWARD_KEY)
+        mae = float(wf["mae"]["ensemble_50_50"])
+        logger.info(
+            f"Baseline: walk-forward ensemble MAE {mae:.4f}M (run {wf.get('run_date')})"
+        )
+        return mae, "walkforward"
+    except Exception:
+        logger.info("Walk-forward baseline unavailable — trying training baseline")
+
+    try:
+        baseline = read_s3_json(s3, S3_TRAINING_BASELINE_KEY)
+        mae = float(baseline["ensemble_mae"])
+        logger.info(f"Baseline: 30-day holdout ensemble MAE {mae:.4f}M (fallback)")
+        return mae, "training_holdout_30d"
+    except Exception:
+        logger.warning("No baseline found — MAE threshold check disabled")
+        return None, None
 
 
 def _load_gold(s3) -> pd.DataFrame | None:
@@ -157,7 +189,7 @@ def _compute_psi_scores(gold: pd.DataFrame) -> dict[str, float]:
     }
 
 
-def run(training_mae: float | None = None) -> dict:
+def run(training_mae: float | None = None, baseline_source: str | None = None) -> dict:
     logger.info("Starting performance monitoring")
     s3 = get_s3_client()
     today = date.today()
@@ -195,7 +227,8 @@ def run(training_mae: float | None = None) -> dict:
         threshold = training_mae * MAE_RETRAIN_MULTIPLIER
         if rolling_mae > threshold:
             retrain_reasons.append(
-                f"Rolling MAE={rolling_mae:.4f}M exceeds {MAE_RETRAIN_MULTIPLIER}× training MAE={training_mae:.4f}M"
+                f"Rolling MAE={rolling_mae:.4f}M exceeds {MAE_RETRAIN_MULTIPLIER}× "
+                f"baseline MAE={training_mae:.4f}M ({baseline_source or 'unknown'})"
             )
 
     retrain_recommended = len(retrain_reasons) > 0
@@ -229,6 +262,7 @@ def run(training_mae: float | None = None) -> dict:
     }
     if training_mae is not None:
         report["training_mae_M"] = training_mae
+        report["baseline_source"] = baseline_source
 
     report_key = f"{S3_DRIFT_REPORT_PREFIX}drift_report_{today}.json"
     write_s3_json(s3, report, report_key)

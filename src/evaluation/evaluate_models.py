@@ -16,7 +16,11 @@ for both families.
 The recommended weight is reported, not auto-applied: tuning the shipped weight on
 a short holdout each run would overfit and make the production weight unstable
 month to month. After evaluation a training baseline JSON (ensemble MAE) is written
-to S3 so the monitoring pipeline has a meaningful retrain threshold.
+to S3 as the monitoring pipeline's fallback retrain threshold — monitoring prefers
+the walk-forward ensemble MAE, which matches the live metric's horizon and cadence.
+The baseline's ensemble MAE is computed from the freshly trained candidates even
+when one failed its gate, so the JSON records both the candidate versions it was
+computed from and the post-gate Production versions, making any mismatch visible.
 """
 import warnings
 
@@ -235,11 +239,31 @@ def run() -> str:
             f"Consider updating ENSEMBLE_SARIMAX_WEIGHT in config if this persists."
         )
 
+    # The ensemble analysis above deliberately uses the freshly trained candidates
+    # (freshest common holdout). When a candidate failed its gate, Production serves
+    # an older version and ensemble_mae describes a pair that isn't live — record
+    # both version sets so the mismatch is visible in the file, never silent.
+    prod_sar = resolve_production_version(client, SARIMAX_MODEL_NAME)
+    prod_xgb = resolve_production_version(client, XGBOOST_MODEL_NAME)
+    baseline_versions = {"sarimax": sar_ver, "xgboost": xgb_ver}
+    production_versions = {
+        "sarimax": int(prod_sar.version) if prod_sar else None,
+        "xgboost": int(prod_xgb.version) if prod_xgb else None,
+    }
+    if baseline_versions != production_versions:
+        logger.warning(
+            f"Baseline ensemble MAE computed from candidate versions {baseline_versions} "
+            f"but Production serves {production_versions} — the baseline describes a "
+            f"model pair that is not live"
+        )
+
     s3 = get_s3_client()
     write_s3_json(s3, {
         "ensemble_mae": ensemble_mae,
         "sarimax_mae": sar_mae,
         "xgboost_mae": xgb_mae,
+        "baseline_versions": baseline_versions,
+        "production_versions": production_versions,
         "champion_model": winner,
         "config_sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
         "recommended_sarimax_weight": best_w,

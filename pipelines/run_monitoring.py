@@ -1,24 +1,13 @@
 """Pipeline: run performance monitoring and drift detection."""
 from pipelines._runner import run_pipeline
 from src.monitoring import monitor_performance
-from src.utils.config import S3_TRAINING_BASELINE_KEY
-from src.utils.logger import get_logger
-from src.utils.s3_helpers import get_s3_client, read_s3_json
-
-logger = get_logger(__name__)
+from src.utils.s3_helpers import get_s3_client
 
 
 def _run() -> dict:
     s3 = get_s3_client()
-    training_mae = None
-    try:
-        baseline = read_s3_json(s3, S3_TRAINING_BASELINE_KEY)
-        training_mae = baseline.get("ensemble_mae")
-        logger.info(f"Training baseline loaded — ensemble MAE: {training_mae:.4f}M")
-    except Exception:
-        logger.warning("No training baseline found — MAE threshold check disabled")
-
-    report = monitor_performance.run(training_mae=training_mae)
+    training_mae, baseline_source = monitor_performance.load_baseline_mae(s3)
+    report = monitor_performance.run(training_mae=training_mae, baseline_source=baseline_source)
     return {"retrain_recommended": report.get("retrain_recommended")}
 
 

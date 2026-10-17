@@ -1,69 +1,19 @@
 # NYC Transit Demand Forecasting
 
+[![CI](https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting/actions/workflows/ci.yml/badge.svg)](https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+
 **Live dashboard:** https://nyc-transit-forecasting.streamlit.app/
 
-An end-to-end ML system that produces a rolling 14-day forecast of daily NYC subway ridership, refreshed weekly. Weather was the starting hypothesis — does rain, snow, and temperature move ridership? It's included as a predictor and tested directly, and the evidence so far (SHAP, SARIMAX coefficient p-values, weak day-level correlations) says it's a **minor** one: recent ridership and the weekly calendar carry most of the signal. Built to demonstrate production ML engineering — automated pipelines, model registry, drift monitoring, a live dashboard — and honest, benchmark-driven evaluation.
+An end-to-end ML system that forecasts daily NYC subway ridership 14 days ahead. It retrains, forecasts and monitors itself on scheduled GitHub Actions, with S3 for storage, MLflow for the model registry and DVC for data versioning.
 
----
+Weather was the starting hypothesis. It's included as a predictor and tested directly, and the evidence (SHAP, SARIMAX p-values, weak day-level correlations) shows it's a minor one. Recent ridership and the weekly calendar carry most of the signal.
 
-## What it does
+## Results
 
-Every Wednesday, the MTA publishes updated ridership data with a ~7-day lag. This system:
+14-day rolling-origin walk-forward backtest (11 weekly origins, 154 forecast points):
 
-1. **Ingests** new ridership + weather data automatically via GitHub Actions
-2. **Trains** two models — SARIMAX and XGBoost — and selects the champion based on holdout MAE
-3. **Forecasts** a rolling 14-day horizon using a weighted ensemble of both models
-4. **Monitors** forecast accuracy and input data drift daily, triggering retraining when needed
-5. **Displays** everything on a live Streamlit dashboard
-
----
-
-## Why daily city-wide (not station-level or hourly)
-
-The MTA has ~500 stations. Station-level (let alone hourly) forecasting means fitting hundreds to thousands of simultaneous, far sparser series — a fundamentally different and much more data- and compute-hungry problem than a single city-wide series.
-
-The modeling question here is about **system-level demand dynamics** — seasonality, the weekly calendar, holidays, and weather — which live at the daily city-wide level. Station-level ridership is dominated by fixed commuter patterns (Times Square is busy on a Tuesday morning regardless of the weather), which is a different problem. Any weather effect, if present, is also most detectable in the aggregate and washes out as granularity increases.
-
-Daily city-wide is the right scope for the modeling question here. Station- or line-level forecasting is a natural extension.
-
----
-
-## Models
-
-### SARIMAX
-Captures weekly and annual seasonality with weather exogenous variables (temperature, precipitation, snow lag, holidays). Best suited for structured seasonal patterns. The `(p,d,q)` order is discovered by Auto-ARIMA and then **pinned** — cached to S3 and reused across retrains, and re-searched only when the cache is older than 90 days. This keeps the production architecture (and its coefficient panel) comparable month to month instead of silently changing shape every cycle, and the walk-forward backtest reads the same pinned order so it evaluates the architecture that actually ships.
-
-### XGBoost
-Uses lag features (ridership 1, 2, 3, 7, 14 days prior), rolling statistics (14-day average, 7-day std), and calendar features. SHAP values are computed at each run for explainability.
-
-### Ensemble
-Predictions are blended **50% SARIMAX + 50% XGBoost** (tunable in `src/utils/config.py`). Equal weights are a deliberate, evidence-based choice — see [Model evaluation](#model-evaluation) below.
-
-### Champion selection
-Both models are evaluated on a held-out 30-day tail (`TEST_DAYS` in `config.py`, shared by the trainers and the gate), then refit on the full dataset before registration so the shipped model uses every observation. Each family's `production` alias in the MLflow registry is moved to the new version only if its logged holdout MAE beats the currently aliased version of that family — so **both** SARIMAX and XGBoost carry a `production` alias simultaneously (the ensemble loads both); the better-performing family is recorded as champion metadata only. MAE is preferred over RMSE for promotion because RMSE is sensitive to individual bad holdout days, making selection unstable. Systematic bias (mean signed error) is also logged — consistent underprediction across weekdays is more operationally dangerous than occasional variance.
-
----
-
-## Model evaluation
-
-Reported accuracy is meaningless without two things: a **naive baseline** to beat, and an evaluation that **matches how the models are actually served**. Both are part of the evaluation.
-
-### Baselines
-
-| Benchmark | What it assumes |
-|-----------|-----------------|
-| Persistence (t-1) | Tomorrow equals today |
-| Seasonal-naive (m=7) | Each day equals the same weekday last week |
-
-Seasonal-naive is the hard-to-beat benchmark for daily ridership — weekly seasonality is the dominant pattern. Any model that doesn't clearly beat it isn't earning its complexity.
-
-### Evaluation method
-
-Models are scored with **14-day rolling-origin walk-forward** — the horizon and weekly re-anchoring cadence the system actually uses in production. A single long holdout would unfairly penalize XGBoost, whose recursive lag features compound error over long horizons it never serves; evaluating at the true 14-day horizon removes that artifact.
-
-### Results (latest walk-forward, 11 weekly origins / 154 forecast points)
-
-| Model | MAE (M) | MAPE | MASE |
+| Model | MAE (M riders) | MAPE | MASE |
 |-------|---------|------|------|
 | Persistence | 0.819 | 31.8% | 2.29 |
 | Seasonal-naive (m=7) | 0.357 | 13.5% | 1.00 |
@@ -71,149 +21,141 @@ Models are scored with **14-day rolling-origin walk-forward** — the horizon an
 | XGBoost | 0.219 | 8.7% | 0.61 |
 | **Ensemble 50/50** | **0.216** | 8.9% | **0.60** |
 
-The ensemble beats seasonal-naive by ~40%, justifying the modeling effort. Persistence is included
-for completeness but is a weak benchmark on a series this seasonal — at MASE 2.29 it's over twice
-the error of simply repeating last week, so seasonal-naive is the bar that matters.
+The ensemble beats seasonal-naive (same weekday last week) by ~40%. Seasonal-naive is the benchmark that matters here; persistence is a weak baseline on a series this weekly-seasonal.
 
-### Why 50/50 (and not a tuned weight)
+## How it works
 
-Block-bootstrapped 95% confidence intervals on the pairwise MAE differences (10,000 resamples over whole origins):
+The MTA publishes ridership weekly (Wednesdays) with a ~1-week lag. Each week the system:
+
+1. **Ingests** MTA ridership, Visual Crossing weather and Ticketmaster events, then builds the silver and gold layers on S3 and snapshots them with DVC
+2. **Forecasts** the next 14 days with a 50/50 SARIMAX + XGBoost ensemble and a 90% conformal prediction band
+
+Monthly (or on a drift trigger), it **retrains** both models and promotes each one only if it beats its current production version. Daily, it **monitors** live forecast error and triggers a retrain if accuracy degrades.
+
+```
+MTA + Visual Crossing + Ticketmaster APIs
+        │
+        ▼
+S3 bronze/            raw API pulls per fetch window
+        │
+        ▼
+S3 silver/            merged ridership + weather          (DVC-versioned)
+        │
+        ▼
+S3 gold/              mta_sarima.parquet  daily aggregate + weather + holidays
+                      mta_ml.parquet      + lag/rolling features for XGBoost
+        │
+        ▼
+MLflow registry       SARIMAX + XGBoost, both @production
+        │
+        ▼
+S3 gold/forecasts/    forecast_{date}.parquet + latest_forecast.json
+        │
+        ▼
+Streamlit dashboard
+```
+
+All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
+
+| Workflow | Trigger | Does |
+|----------|---------|------|
+| Ingestion | Wednesdays 21:00 UTC | Fetch new data, rebuild silver + gold, DVC snapshot, dispatch prediction |
+| Training | First Wednesday of the month, or dispatched by monitoring | Train, gate, register, run walk-forward backtest, dispatch prediction |
+| Prediction | Dispatched by ingestion or training | Write the 14-day ensemble forecast to S3 |
+| Monitoring | Daily 08:00 UTC | Score past forecasts against actuals, compute PSI, dispatch training on degradation |
+| CI & Docker | Push / PR to main | Lint, unit + integration tests; on main, build and push pipeline + dashboard images |
+
+## Models
+
+**SARIMAX:** weekly seasonality with exogenous temperature, precipitation, lagged snowfall and holidays. The order is found by `auto_arima`, cached to S3 and reused for 90 days, so the production model (and its coefficients) stays comparable from one retrain to the next.
+
+**XGBoost:** ridership lags (1, 2, 3, 7, 14 days), 14-day rolling mean, 7-day rolling std, lagged weather and calendar features. Forecasts 14 days recursively, feeding its own predictions back as lags. SHAP values are computed every training run.
+
+**Ensemble:** 50% SARIMAX + 50% XGBoost (`src/utils/config.py`).
+
+**Promotion:** each model is scored on a 30-day holdout, then refit on all data before registration. A new version takes the `production` alias only if its holdout MAE beats the current production version of the same model. Both models stay in production at all times since the ensemble needs both; the "champion" is recorded as metadata only.
+
+## Evaluation
+
+The walk-forward trains once, then rolls a 14-day forecast origin forward weekly, matching the production horizon and re-anchoring cadence. A single long holdout would unfairly penalize XGBoost, whose recursive error compounds over horizons it never serves.
+
+**Why 50/50.** Block-bootstrap 95% CIs on pairwise MAE differences (10,000 resamples of whole 14-day origins):
 
 | Comparison | ΔMAE | 95% CI | Verdict |
 |------------|------|--------|---------|
-| SARIMAX vs XGBoost | +0.041 | [−0.005, +0.094] | tie |
-| Ensemble vs XGBoost | −0.003 | [−0.025, +0.021] | tie |
-| Ensemble vs SARIMAX | −0.044 | [−0.075, −0.016] | **ensemble better** |
+| SARIMAX − XGBoost | +0.041 | [−0.005, +0.094] | tie |
+| Ensemble − XGBoost | −0.003 | [−0.025, +0.021] | tie |
+| Ensemble − SARIMAX | −0.044 | [−0.075, −0.016] | ensemble better |
 
-XGBoost has the better point estimate, but the SARIMAX-vs-XGBoost interval still spans zero — no reliable winner between the two families, so equal weighting remains the honest choice; tuning a precise weight would overfit noise (the grid optimum, 0.35 SARIMAX, is within 0.003 MAE of the 50/50 point). The ensemble does **significantly** beat SARIMAX while tying XGBoost, so diversification demonstrably doesn't hurt and helps against one component — which is the case for keeping both. A heavier tilt toward XGBoost will only be justified once a longer window (more origins, multiple seasons) tightens the SARIMAX-vs-XGBoost interval.
+SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight; the grid-search optimum (0.35 SARIMAX) is within 0.003 MAE of 50/50. The ensemble significantly beats SARIMAX and ties XGBoost, so keeping both models costs nothing and helps against one of them.
 
----
+**Prediction band.** The 90% band is conformal, calibrated on the ensemble's own walk-forward residuals. Scores are pooled across horizon steps and rescaled per step, so the band widens with lead time. Coverage is marginal across the horizon (not per step) and approximate, since rolled-origin residuals aren't strictly exchangeable. Live coverage is tracked daily.
 
-## Architecture
+## Monitoring
 
-```
-MTA API + Visual Crossing API + Ticketmaster API
-        │
-        ▼
-    S3 bronze/              raw CSVs per fetch window
-        │
-        ▼
-    S3 silver/              merged ridership + weather parquet
-        │
-        ▼
-    S3 gold/                two derived parquets
-      mta_sarima.parquet    daily city-wide aggregate + weather + holidays
-      mta_ml.parquet        sarima data + lag/rolling features for XGBoost
-        │
-        ▼
-    MLflow Registry         SARIMAX champion + XGBoost champion (@production alias)
-        │
-        ▼
-    S3 gold/forecasts/      forecast_{date}.parquet + latest_forecast.json
-        │
-        ▼
-    Streamlit dashboard     reads forecast JSON + gold parquets from S3
-```
-
-**Compute:** GitHub Actions (pipelines) + Streamlit Community Cloud (dashboard). AWS is storage only — no EC2, no SageMaker.
-
----
-
-## Pipeline schedule
-
-| Pipeline | Trigger | What it does |
-|----------|---------|-------------|
-| Ingestion | Every Wednesday 21:00 UTC | Fetches new MTA + weather + events data, updates silver on S3 |
-| Training | First Wednesday of month | Retrains both models, selects champion, uploads gold + MLflow to S3 |
-| Prediction | After ingestion or training | Generates 14-day ensemble forecast, writes to S3 |
-| Monitoring | Daily 08:00 UTC | Checks forecast accuracy + PSI drift, triggers retraining if needed |
-| Docker publish | On merge to main | Builds and pushes pipeline + dashboard images to Docker Hub |
-
----
-
-## Monitoring and drift detection
-
-**PSI (Population Stability Index)** is computed daily on the last 14 days of weather features vs a 90-day reference window and written to the drift report (visible on the dashboard):
-- PSI < 0.10 → stable
-- PSI 0.10–0.25 → moderate drift
-- PSI > 0.25 → critical drift
-
-PSI is **informational only — it never triggers retraining**. Weather features drift with the seasons, so PSI fires false alarms every spring and fall; retraining on those would churn models without improving accuracy.
-
-**Rolling MAE is the sole retrain trigger:** if rolling forecast MAE exceeds 1.5× the baseline ensemble MAE, a retrain flag is written and the training pipeline is dispatched — subject to a 7-day cooldown circuit breaker so persistent degradation can't re-dispatch training on every daily run. The baseline is the walk-forward ensemble MAE — measured at the same 14-day horizon and weekly re-anchor cadence as the live metric — falling back to the 30-day training holdout when no walk-forward result exists.
-
----
+- **Retrain trigger:** rolling forecast MAE > 1.5× the walk-forward ensemble MAE (falls back to the 30-day holdout MAE if no backtest exists). A 7-day cooldown stops persistent degradation from dispatching training every day.
+- **PSI** on weather features (last 14 days vs the prior 90) is reported on the dashboard but never triggers retraining. Weather drifts with the seasons, so it would fire false alarms every spring and fall.
+- **Traceability:** every forecast records the model versions, MLflow run IDs and the gold-data DVC hash that produced it.
 
 ## Dashboard
 
-A single scrollable page — accessible at the Streamlit Community Cloud URL without any local setup:
+The [live dashboard](https://nyc-transit-forecasting.streamlit.app/) shows the 14-day forecast with its prediction band and the MTA data-lag window, backtest accuracy and significance tests, live forecast-vs-actual, SHAP and SARIMAX coefficients, the weather analysis, and pipeline health.
 
-> `requirements.txt` exists for Streamlit Community Cloud, which does not support pyproject.toml extras. All other environments use `pyproject.toml`. The dashboard Docker image installs from the same `requirements.txt`, so the published container is a faithful replica of the live deployment — it isn't used to serve the dashboard today (Streamlit Cloud hosts it for free), but it keeps the app portable to any container platform (Cloud Run, ECS) if that changes.
+## Project structure
 
-- **Sidebar** — tech stack, pipeline health badges with last-run dates, and the active ensemble weights
-- **Latest Ridership Forecast** — historical actuals + 14-day ensemble forecast with a 90% conformal prediction band, individual SARIMAX and XGBoost lines, a shaded "MTA data lag" zone, and a today marker; captioned with the forecast's generation date and window
-- **Weather as a Predictive Signal** — temperature-vs-ridership and precipitation-vs-ridership scatter plots with trend lines, demonstrating the weather signal directly
-- **Model Accuracy** — predicted-vs-actual scatter against a perfect-forecast diagonal, XGBoost SHAP feature importance, and MAPE / MAE / forecast-run-count metrics
+```
+src/
+  ingestion/        MTA, weather and events fetchers; silver merge
+  transformation/   gold-layer feature engineering
+  training/         SARIMAX and XGBoost trainers
+  evaluation/       promotion gate, walk-forward backtest, PSI
+  prediction/       ensemble forecast + conformal band
+  monitoring/       rolling MAE, drift report, retrain trigger
+  dashboard/        Streamlit app
+  utils/            config, S3, MLflow registry, lineage
+pipelines/          run_* entry points called by GitHub Actions
+tests/              unit + integration (pytest)
+docker/             pipeline and dashboard images
+notebooks/          EDA
+```
 
----
-
-## Local setup
+## Running locally
 
 ```bash
-# Clone and install
 git clone https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting
 cd nyc-transit-demand-forecasting
 pip install -e ".[pipeline,dev]"
+cp .env.example .env        # AWS, NYC Open Data, Visual Crossing, Ticketmaster keys
 
-# Configure credentials
-cp .env.example .env
-# Fill in: AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_BUCKET_NAME, AWS_REGION,
-#          NY_APP_TOKEN, WEATHER_API_KEY, TICKETMASTER_API_KEY
+pytest
+streamlit run src/dashboard/app.py
 ```
 
-### First-time bootstrap (new S3 bucket)
+**Bootstrapping a new S3 bucket:**
 
 ```bash
-python -m pipelines.run_ingestion     # fetch data → S3 bronze + silver
-python -m pipelines.run_training      # train models → MLflow + S3 gold
+python -m pipelines.run_ingestion     # bronze → silver → gold on S3
+python -m pipelines.run_training      # train + register models in local MLflow
 aws s3 cp mlflow.db s3://YOUR_BUCKET/mlflow/mlflow.db
 aws s3 sync mlruns/ s3://YOUR_BUCKET/mlflow/mlruns/
-python -m pipelines.run_prediction    # generate first forecast → S3
+python -m pipelines.run_prediction    # first forecast → S3
 ```
 
-After bootstrapping, GitHub Actions takes over on schedule.
+After that the scheduled workflows take over. They need these repository secrets: `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_BUCKET_NAME`, `AWS_REGION`, `NY_APP_TOKEN`, `WEATHER_API_KEY`, `TICKETMASTER_API_KEY`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
-### Viewing MLflow locally
+To browse MLflow runs from CI, pull the store from S3 and run `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
-After automated runs, sync from S3 to view experiment history:
+> The dashboard installs from `requirements.txt` because Streamlit Community Cloud doesn't support `pyproject.toml` extras. Everything else uses `pyproject.toml`.
 
-```bash
-aws s3 cp s3://YOUR_BUCKET/mlflow/mlflow.db ./mlflow.db
-aws s3 sync s3://YOUR_BUCKET/mlflow/mlruns/ ./mlruns/
-mlflow ui --backend-store-uri sqlite:///mlflow.db
-```
+## Limitations
 
----
-
-## GitHub Actions secrets required
-
-`AWS_ACCESS_KEY` · `AWS_SECRET_KEY` · `AWS_BUCKET_NAME` · `AWS_REGION` · `NY_APP_TOKEN` · `WEATHER_API_KEY` · `TICKETMASTER_API_KEY` · `DOCKERHUB_USERNAME` · `DOCKERHUB_TOKEN`
-
----
-
-## Known limitations and future work
-
-- **Forward reach:** the MTA publishes ridership with a ~1–2 week lag, so only the latter part of each 14-day forecast is genuinely ahead of today — the earlier days fill the gap to the last published week.
-- **One-off shocks:** the models learn regular patterns (weekly seasonality, holidays, weather) and can't anticipate service disruptions, special events, or structural breaks until they appear in the data.
-- **Evaluation power:** the walk-forward backtest uses a fixed 90-day / 11-origin window (production-faithful — it mirrors how the model serves between retrains), so its confidence intervals are wide and it spans only one season. A longer, multi-season window with a per-origin refit would tighten the CIs and could justify an asymmetric ensemble weight (currently 50/50 because the two models are statistically indistinguishable on this window).
-- **Ensemble uncertainty:** the forecast ships a 90% conformal prediction band calibrated on the backtest's ensemble residuals, and its empirical coverage is tracked daily. Two known limits: coverage is *marginal across the 14-day horizon* rather than per-step (scores are pooled to stay estimable at 11 origins), and conformal's guarantee is approximate here because rolled-origin residuals aren't strictly exchangeable.
-- **Granularity:** daily city-wide is the scope; line- or station-level forecasting is a natural extension (a different, far more data- and compute-hungry problem).
-- **Event features:** NYC events (concerts, sports) are shown as dashboard context but not yet used as model features — too sparse to help a daily city-wide model.
-- **MLflow hosting:** runs on local SQLite synced to S3; a production deployment would use a shared tracking server on PostgreSQL/RDS.
-- **Docker in CI:** the CI workflow installs dependencies via `pip`; running the published Docker image in CI would make the environment identical across targets (the training/prediction pipelines already run the image).
-
----
+- **Short forward reach.** Because of the MTA's ~1–2 week publishing lag, the first part of each 14-day forecast covers days that have already happened but aren't published yet. Only the remainder is truly ahead of today.
+- **Low evaluation power.** The backtest is 11 origins over 90 days, one season. CIs are wide; a longer, multi-season window with per-origin refits would tighten them and could justify an unequal ensemble weight.
+- **No shock awareness.** The models learn regular patterns and can't anticipate service disruptions, major events or structural breaks.
+- **Scope.** Daily, city-wide, one city. Station- or line-level forecasting is a different and much more data-hungry problem.
+- **Events aren't used yet.** Ticketmaster events are ingested to bronze but are too sparse to help a daily city-wide model, so they aren't model features.
+- **MLflow on SQLite.** The tracking store is a SQLite file synced to S3; a team deployment would use a shared tracking server backed by Postgres.
 
 ## Tech stack
 
-Python 3.12 · pandas · XGBoost · statsmodels · pmdarima · SHAP · MLflow · AWS S3 · Streamlit · Plotly · GitHub Actions · Docker
+Python 3.12 · pandas · statsmodels · pmdarima · XGBoost · SHAP · MLflow · DVC · AWS S3 · Docker · GitHub Actions · Streamlit · Plotly

@@ -100,3 +100,53 @@ def test_bronze_to_gold(s3, local_paths, monkeypatch):
     # Persisted gold files match what the stage functions returned
     assert pd.read_parquet(local_paths["gold_sarima"]).equals(gold_sarima)
     assert pd.read_parquet(local_paths["gold_ml"]).equals(gold_ml)
+
+
+def test_partial_last_day_is_healed_by_lookback_refetch(s3, local_paths, monkeypatch):
+    """Regression for 2026-07-08: a fetch window's last day landed half-published.
+    The next ingestion's lookback re-fetch must replace it in silver and gold,
+    without double-counting the overlapping days."""
+    monkeypatch.setattr(merge_silver, "get_s3_client", lambda: s3)
+    _seed_bronze(s3)
+    dates = pd.date_range("2025-06-01", periods=N_DAYS, freq="D")
+    last = dates.max()
+
+    # Week 1: the window's last day is partial (one of two stations, a tenth of riders)
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=f"bronze/mta/mta_daily_ridership_{last.date()}_{last.date()}.csv",
+        Body=pd.DataFrame({
+            "transit_date": [last], "station_complex": ["Grand Central"],
+            "borough": ["Manhattan"], "daily_ridership": [150_000],
+        }).to_csv(index=False),
+    )
+    merge_silver.run()
+    assert preprocess_sarima.run().loc[last, "daily_ridership"] == 150_000
+
+    # Week 2: lookback re-fetch of the last 3 days plus one new day, complete values
+    refetch_dates = pd.date_range(last - pd.Timedelta(days=2), periods=4, freq="D")
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=f"bronze/mta/mta_daily_ridership_{refetch_dates.min().date()}_{refetch_dates.max().date()}.csv",
+        Body=pd.DataFrame({
+            "transit_date": list(refetch_dates) * 2,
+            "station_complex": ["Grand Central"] * 4 + ["Times Sq"] * 4,
+            "borough": ["Manhattan"] * 8,
+            "daily_ridership": [2_000_000] * 8,
+        }).to_csv(index=False),
+    )
+    new_day = refetch_dates.max()
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=f"bronze/weather/historical/weather_{new_day.date()}_{new_day.date()}.csv",
+        Body=pd.DataFrame({"datetime": [new_day.date()], "temp": [20.0],
+                           "precip": [0.0], "snow": [0.0]}).to_csv(index=False),
+    )
+    merge_silver.run()
+    gold = preprocess_sarima.run()
+
+    silver = pd.read_parquet(local_paths["silver"])
+    assert not silver.duplicated(subset=["transit_date", "station_complex"]).any()
+    for d in refetch_dates:
+        assert gold.loc[d, "daily_ridership"] == 4_000_000  # both stations, no double count
+    assert gold.loc[dates[0], "daily_ridership"] == 2 * 1_500_000  # outside lookback, untouched

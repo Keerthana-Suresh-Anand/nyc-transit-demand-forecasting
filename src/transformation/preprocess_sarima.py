@@ -12,6 +12,31 @@ _RIDERSHIP_BOUNDS = (100_000, 7_000_000)   # holiday lows ~1.2M, pre-COVID peaks
 _TEMP_BOUNDS_C = (-30.0, 45.0)             # Central Park records: ~-26°C / ~41°C
 _MAX_DAILY_PRECIP_MM = 400.0               # NYC daily record ~180mm
 
+# Unexplained-drop check: a day far below its own weekday in the surrounding weeks,
+# with no holiday or bad weather to explain it, is most likely a partially published
+# MTA day (2026-04-29 at 0.46x and 2026-07-08 at 0.28x were). Tuned on 2022-2026:
+# flags exactly those two pre-repair and nothing on the corrected history, where
+# real drops (blizzards, Christmas Eve, day after Thanksgiving) all have a holiday
+# or snow/heavy-rain explanation.
+_DROP_RATIO = 0.6
+_DROP_NEIGHBOUR_WEEKS = 4
+_HEAVY_PRECIP_MM = 25.0
+
+
+def find_unexplained_drops(df: pd.DataFrame) -> pd.DatetimeIndex:
+    """Days whose ridership is under _DROP_RATIO x the median of the same weekday in
+    the surrounding weeks, on a non-holiday with no snow (that day or the day
+    before) and no heavy rain. Works for the newest day too (past weeks only)."""
+    r = df["daily_ridership"]
+    weeks = [w for w in range(-_DROP_NEIGHBOUR_WEEKS, _DROP_NEIGHBOUR_WEEKS + 1) if w != 0]
+    neighbours = pd.concat([r.shift(7 * w) for w in weeks], axis=1)
+    typical = neighbours.median(axis=1).where(neighbours.notna().sum(axis=1) >= 2)
+    explained = (
+        (df["is_holiday"] == 1) | (df["snow"] > 0) | (df["snow_lag1"] > 0)
+        | (df["precip"] >= _HEAVY_PRECIP_MM)
+    )
+    return df.index[(r < _DROP_RATIO * typical) & ~explained]
+
 
 def transform(df: pd.DataFrame) -> pd.DataFrame:
     """Silver station-level rows → daily city-wide gold frame. Pure — no I/O."""
@@ -68,6 +93,14 @@ def validate_gold(df: pd.DataFrame) -> None:
         if mask.any():
             dates = df.index[mask][:5].strftime("%Y-%m-%d").tolist()
             logger.warning(f"Gold validation: {int(mask.sum())} day(s) with {label} (e.g. {dates})")
+
+    drops = find_unexplained_drops(df)
+    if len(drops):
+        logger.warning(
+            f"Gold validation: {len(drops)} unexplained ridership drop(s) "
+            f"{drops.strftime('%Y-%m-%d').tolist()} — likely partially published MTA "
+            "data; the lookback re-fetch should heal recent ones, check the source otherwise"
+        )
 
 
 def run() -> pd.DataFrame:

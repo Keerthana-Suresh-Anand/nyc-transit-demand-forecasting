@@ -1,7 +1,9 @@
 """Tests for silver merge: filename date parsing and incremental merge logic."""
+from datetime import UTC, datetime
+
 import pandas as pd
 
-from src.ingestion.merge_silver import combine_silver, join_weather
+from src.ingestion.merge_silver import combine_silver, join_weather, latest_fetch_per_date
 from src.utils.s3_helpers import get_end_date_from_filename
 
 
@@ -49,17 +51,94 @@ class TestCombineSilver:
         out = combine_silver(rows, rows.copy())  # same window fetched twice
         assert len(out) == 5
 
-    def test_distinct_rows_on_the_same_date_are_kept(self):
+    def test_revised_dates_replace_old_rows(self):
         old = self._make_df(pd.date_range("2025-01-01", periods=10))
-        new = self._make_df(pd.date_range("2025-01-08", periods=5))
-        # dates overlap Jan 8-10, but ridership differs, so no row is an exact dup
-        assert len(combine_silver(old, new)) == 15
+        new = self._make_df(pd.date_range("2025-01-08", periods=5), ridership_start=90_000)
+        # Jan 8-10 overlap with different values: the new copy wins, no double count
+        out = combine_silver(old, new)
+        assert len(out) == 12  # Jan 1-12
+        assert out["transit_date"].is_unique
+        jan8 = out.loc[out["transit_date"] == "2025-01-08", "daily_ridership"].item()
+        assert jan8 == 90_000
+
+    def test_dates_outside_new_window_untouched(self):
+        old = self._make_df(pd.date_range("2025-01-01", periods=10))
+        new = self._make_df(pd.date_range("2025-01-08", periods=5), ridership_start=90_000)
+        out = combine_silver(old, new)
+        assert out.loc[out["transit_date"] == "2025-01-01", "daily_ridership"].item() == 50_000
 
     def test_result_index_is_reset(self):
         old = self._make_df(pd.date_range("2025-01-01", periods=4))
         new = self._make_df(pd.date_range("2025-02-01", periods=4))
         out = combine_silver(old, new)
         assert list(out.index) == list(range(len(out)))
+
+
+class TestLatestFetchPerDate:
+    """Overlapping bronze windows: the newest fetch of each date supersedes older ones."""
+
+    def _fetch(self, dates, ridership):
+        return pd.DataFrame({
+            "transit_date": [str(d.date()) for d in dates],
+            "station_complex": ["Grand Central"] * len(dates),
+            "daily_ridership": [ridership] * len(dates),
+        })
+
+    def test_partial_day_replaced_by_later_fetch(self):
+        # First fetch caught Jul 8 half-published; the lookback re-fetch has the full day
+        first = self._fetch(pd.date_range("2026-07-02", "2026-07-08"), 100)
+        refetch = self._fetch(pd.date_range("2026-07-02", "2026-07-15"), 400)
+        out = latest_fetch_per_date([
+            ((datetime(2026, 7, 14, tzinfo=UTC),), first),
+            ((datetime(2026, 7, 21, tzinfo=UTC),), refetch),
+        ])
+        assert out["transit_date"].is_unique
+        assert (out["daily_ridership"] == 400).all()
+        assert len(out) == 14
+
+    def test_order_of_inputs_does_not_matter(self):
+        older = self._fetch(pd.date_range("2026-07-01", periods=3), 100)
+        newer = self._fetch(pd.date_range("2026-07-02", periods=3), 400)
+        a = latest_fetch_per_date([((datetime(2026, 7, 1, tzinfo=UTC),), older),
+                                   ((datetime(2026, 7, 8, tzinfo=UTC),), newer)])
+        b = latest_fetch_per_date([((datetime(2026, 7, 8, tzinfo=UTC),), newer),
+                                   ((datetime(2026, 7, 1, tzinfo=UTC),), older)])
+        key = ["transit_date", "daily_ridership"]
+        assert a.sort_values(key)[key].reset_index(drop=True).equals(
+            b.sort_values(key)[key].reset_index(drop=True))
+
+    def test_dates_only_in_older_fetch_are_kept(self):
+        older = self._fetch(pd.date_range("2026-07-01", periods=3), 100)
+        newer = self._fetch(pd.date_range("2026-07-03", periods=3), 400)
+        out = latest_fetch_per_date([((datetime(2026, 7, 1, tzinfo=UTC),), older),
+                                     ((datetime(2026, 7, 8, tzinfo=UTC),), newer)])
+        by_date = out.set_index("transit_date")["daily_ridership"]
+        assert by_date[pd.Timestamp("2026-07-01")] == 100
+        assert by_date[pd.Timestamp("2026-07-03")] == 400
+
+    def test_all_stations_of_newest_fetch_kept(self):
+        two_stations = pd.concat([
+            self._fetch(pd.date_range("2026-07-08", periods=1), 400),
+            self._fetch(pd.date_range("2026-07-08", periods=1), 500).assign(station_complex="Times Sq"),
+        ], ignore_index=True)
+        out = latest_fetch_per_date([
+            ((datetime(2026, 7, 1, tzinfo=UTC),), self._fetch(pd.date_range("2026-07-08", periods=1), 1)),
+            ((datetime(2026, 7, 8, tzinfo=UTC),), two_stations),
+        ])
+        assert sorted(out["daily_ridership"]) == [400, 500]
+
+    def test_equal_fetch_times_never_keep_both_copies(self):
+        # Same write time: the tie-breaker (window end) picks exactly one fetch per date
+        t = datetime(2026, 7, 21, tzinfo=UTC)
+        a = self._fetch(pd.date_range("2026-07-02", "2026-07-08"), 100)
+        b = self._fetch(pd.date_range("2026-07-02", "2026-07-15"), 400)
+        out = latest_fetch_per_date([((t, pd.Timestamp("2026-07-08")), a),
+                                     ((t, pd.Timestamp("2026-07-15")), b)])
+        assert out["transit_date"].is_unique
+        assert (out["daily_ridership"] == 400).all()
+
+    def test_empty_input(self):
+        assert latest_fetch_per_date([]).empty
 
 
 class TestJoinWeather:

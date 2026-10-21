@@ -13,7 +13,7 @@ from src.utils.config import (
 from src.utils.s3_helpers import get_s3_client, upload_s3_file
 
 
-def _run() -> None:
+def _run() -> dict:
     ingest_mta.run()
     ingest_weather.run()
     ingest_events.run()
@@ -23,13 +23,17 @@ def _run() -> None:
     # belongs where the data enters (weekly), not in the model pipelines. Training
     # and prediction consume S3 gold, so building it on every ingestion keeps the
     # dashboard actuals and monitoring's rolling MAE fresh weekly.
-    preprocess_sarima.run()
+    gold = preprocess_sarima.run()
     preprocess_ml.run()
+    drops = preprocess_sarima.find_unexplained_drops(gold)
 
     s3 = get_s3_client()
     upload_s3_file(s3, SILVER_LOCAL_PATH, S3_SILVER_KEY)
     upload_s3_file(s3, GOLD_SARIMA_LOCAL_PATH, S3_GOLD_SARIMA_KEY)
     upload_s3_file(s3, GOLD_ML_LOCAL_PATH, S3_GOLD_ML_KEY)
+
+    # Surfaced in the S3 run log, not just the CI log, so a suspect day is visible.
+    return {"unexplained_drops": drops.strftime("%Y-%m-%d").tolist()}
 
 
 def run() -> None:

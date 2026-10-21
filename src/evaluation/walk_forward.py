@@ -79,24 +79,44 @@ def block_bootstrap_mae_diff(p1_blocks, p2_blocks, actual_blocks, n_boot=10000, 
     return float(diffs.mean()), float(np.percentile(diffs, 2.5)), float(np.percentile(diffs, 97.5))
 
 
+def _lead_time_scale(per_step: np.ndarray) -> np.ndarray:
+    """Least-squares line through per-step error levels, with the slope floored at
+    zero — error shouldn't shrink with lead time, and a negative slope is noise."""
+    steps = np.arange(1, len(per_step) + 1)
+    if len(per_step) < 2:
+        return per_step.astype(float)
+    mean = float(np.mean(per_step))
+    slope, intercept = np.polyfit(steps, per_step, 1)
+    if slope < 0:
+        return np.full(len(per_step), mean)
+    # A steep line can cross zero at short lead times; keep every step positive.
+    return np.maximum(intercept + slope * steps, 0.1 * mean)
+
+
 def conformal_half_widths(
     pred_blocks: list[np.ndarray], actual_blocks: list[np.ndarray], coverage: float,
 ) -> dict:
     """Split-conformal band half-widths for a forecast, one per horizon step.
 
-    Scaled conformal: each |residual| is normalized by its horizon step's mean
-    |residual|, the conformal quantile is taken over the pooled scores (all
-    origins × steps), and each step's half-width is quantile × that step's scale.
-    Pooling makes the quantile estimable (n = origins × horizon rather than just
-    origins per step) while the per-step scale keeps the band tracking how error
-    grows with lead time. Coverage is therefore marginal across the horizon, not
-    per-step — and the usual time-series caveat applies: residuals from rolled
-    origins are not strictly exchangeable, so the guarantee is approximate.
+    Scaled conformal: each |residual| is normalized by a lead-time scale, the
+    conformal quantile is taken over the pooled scores (all origins × steps), and
+    each step's half-width is quantile × that step's scale. Pooling makes the
+    quantile estimable (n = origins × horizon rather than just origins per step).
+    Coverage is therefore marginal across the horizon, not per-step — and the usual
+    time-series caveat applies: residuals from rolled origins are not strictly
+    exchangeable, so the guarantee is approximate.
+
+    The scale is a non-decreasing linear trend fitted to each step's median
+    |residual|, not each step's raw mean. Backtest origins are a week apart, so
+    step k always lands on the same weekday: a raw per-step mean measures that
+    weekday's error as much as lead time, and with ~11 residuals per step one bad
+    day can dominate it (a single partial-data day once made two steps ~4x wider
+    than the rest). The trend keeps only the lead-time signal.
     """
     pred = np.vstack(pred_blocks)            # (n_origins, horizon)
     actual = np.vstack(actual_blocks)
     abs_resid = np.abs(pred - actual)
-    scale = np.maximum(abs_resid.mean(axis=0), 1e-9)
+    scale = np.maximum(_lead_time_scale(np.median(abs_resid, axis=0)), 1e-9)
     scores = (abs_resid / scale).ravel()
     n = scores.size
     k = min(math.ceil((n + 1) * coverage), n)
@@ -116,6 +136,21 @@ def significance_verdict(lo: float, hi: float, p1: str, p2: str) -> str:
     if lo > 0:
         return f"{p2} significantly better"
     return "TIE (95% CI includes 0)"
+
+
+def forecast_origins(n: int, eval_days: int, horizon: int, step: int) -> list[int]:
+    """Origin positions (last known day of each backtest forecast) within the last
+    `eval_days` of an n-day series, each followed by a full `horizon` of actuals.
+
+    Anchored to the series' last day and stepping back whole weeks, so every origin
+    falls on the same weekday as production's origin (it forecasts from the last
+    actual). A forward step from the window start would put origins on an arbitrary
+    weekday — and since horizon step k then always lands on one weekday, the band's
+    per-step widths would be applied to the wrong weekdays in production.
+    """
+    last_origin = n - 1 - 7 * math.ceil(horizon / 7)
+    first_allowed = n - eval_days - 1
+    return list(range(last_origin, first_allowed - 1, -step))[::-1]
 
 
 def walk_forward(
@@ -157,7 +192,7 @@ def walk_forward(
     xmodel.fit(x_ml.iloc[:ml_cut], y_ml.iloc[:ml_cut], verbose=False)
 
     s_all, x_all, a_all, sn_all, pe_all = [], [], [], [], []
-    origins = list(range(train_end - 1, n - horizon, step))
+    origins = forecast_origins(n, eval_days, horizon, step)
     logger.info(f"Rolling over {len(origins)} weekly origins (H={horizon})")
     for p in origins:
         if p >= train_end:

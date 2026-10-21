@@ -8,6 +8,7 @@ import src.evaluation.walk_forward as wf
 from src.evaluation.walk_forward import (
     block_bootstrap_mae_diff,
     conformal_half_widths,
+    forecast_origins,
     significance_verdict,
     summarize,
 )
@@ -125,6 +126,22 @@ class TestConformalHalfWidths:
         b = conformal_half_widths(neg, actual, 0.9)["half_width_by_horizon"]
         assert a == pytest.approx(b)
 
+    def test_one_bad_day_does_not_spike_its_step(self):
+        # Regression: one partial-data day (3.0M off) at step 2 of one origin made
+        # that step ~4x wider than its neighbours under a raw per-step mean.
+        resid = [[0.1, 0.12, 0.14]] * 11
+        resid[4] = [0.1, 3.0, 0.14]
+        pred, actual = self._blocks(resid)
+        hw = conformal_half_widths(pred, actual, 0.9)["half_width_by_horizon"]
+        assert hw[1] < 1.5 * hw[0]
+        assert hw == sorted(hw)  # still non-decreasing with lead time
+
+    def test_band_never_narrows_with_lead_time(self):
+        # Noisy per-step errors that trend down: the scale stays flat, not shrinking
+        pred, actual = self._blocks([[0.4, 0.3, 0.2]] * 8)
+        hw = conformal_half_widths(pred, actual, 0.9)["half_width_by_horizon"]
+        assert hw[0] == pytest.approx(hw[1]) == pytest.approx(hw[2])
+
     def test_metadata_reports_score_count_and_coverage(self):
         pred, actual = self._blocks([[0.1, 0.2, 0.3]] * 7)
         out = conformal_half_widths(pred, actual, 0.9)
@@ -148,6 +165,30 @@ class TestConformalHalfWidths:
         monkeypatch.setattr(wf, "ENSEMBLE_XGB_WEIGHT", 0.0)
         r = summarize(_blocks(sar, xgbp, act), n_boot=100)
         assert r["conformal"]["half_width_by_horizon"] == pytest.approx([0.1, 0.1, 0.1])
+
+
+class TestForecastOrigins:
+    """Backtest origins must share production's origin weekday (the last actual)."""
+
+    def test_origins_fall_on_last_actual_weekday(self):
+        n = 500
+        for p in forecast_origins(n, eval_days=90, horizon=14, step=7):
+            assert (n - 1 - p) % 7 == 0
+
+    def test_alignment_holds_for_any_series_length(self):
+        for n in range(400, 407):  # every weekday offset
+            assert all((n - 1 - p) % 7 == 0 for p in forecast_origins(n, 90, 14, 7))
+
+    def test_every_origin_has_a_full_horizon_of_actuals(self):
+        n = 500
+        assert max(forecast_origins(n, 90, 14, 7)) + 14 <= n - 1
+
+    def test_origins_stay_inside_eval_window(self):
+        n = 500
+        assert min(forecast_origins(n, 90, 14, 7)) >= n - 90 - 1
+
+    def test_default_window_keeps_eleven_origins(self):
+        assert len(forecast_origins(500, 90, 14, 7)) == 11
 
 
 class TestPinnedProductionOrder:

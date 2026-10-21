@@ -76,9 +76,9 @@ Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipe
 
 ## Evaluation
 
-The walk-forward trains once, then rolls a 14-day forecast origin forward weekly, matching the production horizon and re-anchoring cadence. A single long holdout would unfairly penalize XGBoost, whose recursive error compounds over horizons it never serves.
+**Method.** The backtest replays production. Both models are trained on data up to 90 days before the end. Then every 7 days, a 14-day forecast is made using only the data available that day: 11 forecasts, 154 days scored. SARIMAX is updated with new actuals without refitting, and XGBoost's lag features are filled from the latest actuals. A single long holdout would unfairly penalize XGBoost, whose recursive error compounds over horizons it never serves in production. The backtest uses observed weather throughout, while production uses forecast weather for days that haven't happened yet; weather is a minor predictor, so the effect is small.
 
-**Why 50/50.** Block-bootstrap 95% CIs on pairwise MAE differences (10,000 resamples of whole 14-day origins):
+**Why 50/50.** Block-bootstrap 95% CIs on pairwise MAE differences (10,000 resamples of whole 14-day forecasts, so errors within a forecast stay together). The ensemble is fixed at 50/50 in advance, not tuned on this data:
 
 | Comparison | ΔMAE | 95% CI | Verdict |
 |------------|------|--------|---------|
@@ -86,9 +86,9 @@ The walk-forward trains once, then rolls a 14-day forecast origin forward weekly
 | Ensemble − XGBoost | −0.003 | [−0.025, +0.021] | tie |
 | Ensemble − SARIMAX | −0.044 | [−0.075, −0.016] | ensemble better |
 
-SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight; the grid-search optimum (0.35 SARIMAX) is within 0.003 MAE of 50/50. The ensemble significantly beats SARIMAX and ties XGBoost, so keeping both models costs nothing and helps against one of them.
+SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight; the best weight found by grid search (0.35 SARIMAX) is within 0.003 MAE of 50/50. The ensemble beats SARIMAX and ties XGBoost, so keeping both models costs no accuracy and helps against one of them. With only 11 forecasts that overlap by 7 days, these intervals are approximate and probably a little narrow; a longer, multi-season backtest is the main next step.
 
-**Prediction band.** The 90% band is conformal, calibrated on the ensemble's own walk-forward residuals. Scores are pooled across horizon steps and rescaled per step, so the band widens with lead time. Coverage is marginal across the horizon (not per step) and approximate, since rolled-origin residuals aren't strictly exchangeable. Live coverage is tracked daily.
+**Prediction band.** The 90% band is conformal: its width comes from the ensemble's own backtest errors. Errors are pooled across all 14 days ahead and rescaled per day, so the band widens with lead time. Coverage holds on average across the 14 days rather than for each day, and it's approximate because errors from consecutive forecasts aren't fully independent. Live coverage is tracked daily.
 
 ## Monitoring
 

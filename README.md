@@ -94,13 +94,20 @@ SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an 
 
 - **Retrain trigger:** each day, forecasts from the models currently in production are scored against actuals as they arrive. Once at least 14 days are scored, training is dispatched if their MAE exceeds 1.5× the backtest ensemble MAE (or the 30-day holdout MAE if no backtest exists). A 7-day cooldown caps retrains at one per week.
 - **Band coverage:** the same check reports how often actuals land inside the 90% band.
-- **Data drift:** PSI on weather features (last 14 days vs the prior 90) is shown on the dashboard but never triggers retraining. Weather drifts with the seasons, so it would fire false alarms every spring and fall.
+- **Data drift:** PSI on weather features (last 14 days vs the prior 90) is logged in the daily drift report but never triggers retraining. Weather drifts with the seasons, so it would fire false alarms every spring and fall.
 - **Pipeline health:** every run logs its status, duration and any error to S3, and the dashboard shows the latest run of each pipeline.
 - **Traceability:** every forecast records the model versions, MLflow run IDs, gold-data DVC hash and Docker image digest that produced it.
 
 ## Dashboard
 
-The [live dashboard](https://nyc-transit-forecasting.streamlit.app/) shows the 14-day forecast with its prediction band and the MTA data-lag window, backtest accuracy and significance tests, live forecast-vs-actual, SHAP and SARIMAX coefficients, the weather analysis, and pipeline health.
+The [live dashboard](https://nyc-transit-forecasting.streamlit.app/) is a single page:
+
+- **Headline numbers:** next-7-day ridership total, backtest MAE, and improvement over seasonal-naive, with the serving model versions.
+- **Forecast:** the 14-day ensemble with its 90% band, the individual model lines, the MTA data-lag window, and a daily table for the latest week.
+- **How it works:** architecture diagram, plus short explainers on the models and evaluation.
+- **Model accuracy:** models vs naive baselines, significance tests, live band coverage, error by forecast horizon, live forecast-vs-actual, SHAP and SARIMAX coefficients.
+- **Weather:** temperature and precipitation vs ridership.
+- **Sidebar:** pipeline health, data coverage, and a link to the source code.
 
 ## Project structure
 

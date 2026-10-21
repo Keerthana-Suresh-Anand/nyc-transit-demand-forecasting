@@ -8,12 +8,14 @@ import pytest
 from src.monitoring.monitor_performance import (
     _compute_forecast_metrics,
     _compute_psi_scores,
+    _serving_versions,
     load_baseline_mae,
     run,
 )
 from src.utils.config import (
     PSI_CRITICAL_THRESHOLD,
     PSI_MODERATE_THRESHOLD,
+    RETRAIN_MIN_SCORED,
     S3_TRAINING_BASELINE_KEY,
     S3_WALKFORWARD_KEY,
 )
@@ -62,6 +64,13 @@ class TestLoadBaselineMae:
         with patch("src.monitoring.monitor_performance.read_s3_json", side_effect=self._reader(files)):
             mae, source = load_baseline_mae(MagicMock())
         assert mae == pytest.approx(0.216)
+        assert source == "walkforward"
+
+    def test_prefers_served_weight_mae_within_walkforward(self):
+        files = {S3_WALKFORWARD_KEY: {"mae": {"ensemble_50_50": 0.216, "ensemble_served": 0.210}}}
+        with patch("src.monitoring.monitor_performance.read_s3_json", side_effect=self._reader(files)):
+            mae, source = load_baseline_mae(MagicMock())
+        assert mae == pytest.approx(0.210)
         assert source == "walkforward"
 
     def test_falls_back_when_walkforward_missing(self):
@@ -285,22 +294,6 @@ class TestMonitorRun:
 
         assert result["retrain_recommended"] is False
 
-    def test_retrain_recommended_when_mae_exceeds_threshold(self, monkeypatch):
-        gold = _make_gold(120)
-        past_fc = _make_past_forecasts(gold, n_rows=5)
-        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
-
-        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
-             patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=past_fc), \
-             patch("src.monitoring.monitor_performance._compute_psi_scores",
-                   return_value={"temp": 0.01}), \
-             patch("src.monitoring.monitor_performance._compute_forecast_metrics",
-                   return_value={"n_evaluated": 5, "rolling_mae_M": 1.0, "rolling_mape_pct": 30.0}), \
-             patch("src.monitoring.monitor_performance.write_s3_json"):
-            # training_mae=0.5; rolling=1.0 > 1.5 * 0.5 = 0.75 → retrain
-            result = run(training_mae=0.5)
-
-        assert result["retrain_recommended"] is True
 
     def test_report_records_baseline_source(self, monkeypatch):
         gold = _make_gold(120)
@@ -329,3 +322,108 @@ class TestMonitorRun:
 
         assert "psi_scores" in result
         assert result["psi_scores"]["temp"] == pytest.approx(0.05)
+
+
+SERVING = {"sarimax": 3, "xgboost": 5}
+
+
+def _fc_with_versions(gold, n_rows, sarimax_v, xgboost_v, error=0.5):
+    """Past forecasts for the last n_rows gold dates, each off by `error` M."""
+    actuals = gold["daily_ridership"].iloc[-n_rows:] / 1_000_000
+    return pd.DataFrame({
+        "date": gold.index[-n_rows:].date,
+        "ensemble_forecast_M": actuals.to_numpy() + error,
+        "sarimax_version": sarimax_v,
+        "xgboost_version": xgboost_v,
+    })
+
+
+class TestTriggerMetric:
+    """The trigger MAE scores only forecasts made by the serving models, so it
+    resets after a model change instead of re-firing on replaced models' errors."""
+
+    def test_counts_only_rows_from_serving_versions(self):
+        gold = _make_gold(30)
+        old = _fc_with_versions(gold, 4, 2, 5, error=1.0)    # replaced SARIMAX version
+        new = _fc_with_versions(gold, 3, 3, 5, error=0.2)
+        m = _compute_forecast_metrics(pd.concat([old, new], ignore_index=True), gold, SERVING)
+        assert m["n_evaluated"] == 7                          # rolling metric keeps all rows
+        assert m["trigger_n"] == 3
+        assert m["trigger_mae_M"] == pytest.approx(0.2)
+
+    def test_legacy_rows_without_versions_excluded(self):
+        gold = _make_gold(30)
+        m = _compute_forecast_metrics(_make_past_forecasts(gold, 5), gold, SERVING)
+        assert m["n_evaluated"] == 5
+        assert m["trigger_n"] == 0
+        assert "trigger_mae_M" not in m
+
+    def test_unknown_serving_versions_score_nothing(self):
+        gold = _make_gold(30)
+        m = _compute_forecast_metrics(_fc_with_versions(gold, 5, 3, 5), gold, serving=None)
+        assert m["trigger_n"] == 0
+
+
+class TestServingVersions:
+    def _patch_latest(self, payload):
+        return patch("src.monitoring.monitor_performance.read_s3_json", return_value=payload)
+
+    def test_reads_versions_from_latest_forecast(self):
+        payload = {"model_versions": {"sarimax": {"version": 3, "run_id": "a"},
+                                      "xgboost": {"version": 5, "run_id": "b"}}}
+        with self._patch_latest(payload):
+            assert _serving_versions(MagicMock()) == SERVING
+
+    def test_none_when_a_version_is_missing(self):
+        payload = {"model_versions": {"sarimax": {"version": 3}, "xgboost": None}}
+        with self._patch_latest(payload):
+            assert _serving_versions(MagicMock()) is None
+
+    def test_none_when_latest_forecast_unreadable(self):
+        with patch("src.monitoring.monitor_performance.read_s3_json",
+                   side_effect=FileNotFoundError("latest")):
+            assert _serving_versions(MagicMock()) is None
+
+
+class TestRetrainTrigger:
+    def _run(self, monkeypatch, metrics, serving=SERVING, training_mae=0.5):
+        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+        gold = _make_gold(120)
+        with patch("src.monitoring.monitor_performance._load_gold", return_value=gold), \
+             patch("src.monitoring.monitor_performance._serving_versions", return_value=serving), \
+             patch("src.monitoring.monitor_performance._load_past_forecasts",
+                   return_value=_make_past_forecasts(gold, 5)), \
+             patch("src.monitoring.monitor_performance._compute_psi_scores",
+                   return_value={"temp": 0.01}), \
+             patch("src.monitoring.monitor_performance._compute_forecast_metrics",
+                   return_value=metrics), \
+             patch("src.monitoring.monitor_performance._last_retrain_trigger", return_value=None), \
+             patch("src.monitoring.monitor_performance._record_retrain_trigger"), \
+             patch("src.monitoring.monitor_performance.write_s3_json"):
+            return run(training_mae=training_mae)
+
+    def test_fires_when_serving_mae_exceeds_threshold(self, monkeypatch):
+        # 1.0 > 1.5 × 0.5 with enough scored days
+        metrics = {"n_evaluated": 20, "rolling_mae_M": 1.0,
+                   "trigger_n": RETRAIN_MIN_SCORED, "trigger_mae_M": 1.0}
+        result = self._run(monkeypatch, metrics)
+        assert result["retrain_recommended"] is True
+        assert result["retrain_triggered"] is True
+
+    def test_waits_for_minimum_scored_days(self, monkeypatch):
+        metrics = {"n_evaluated": 20, "rolling_mae_M": 1.0,
+                   "trigger_n": RETRAIN_MIN_SCORED - 1, "trigger_mae_M": 1.0}
+        assert self._run(monkeypatch, metrics)["retrain_recommended"] is False
+
+    def test_replaced_models_errors_do_not_refire(self, monkeypatch):
+        # Rolling MAE still high from pre-retrain forecasts; serving models are fine
+        metrics = {"n_evaluated": 60, "rolling_mae_M": 1.0,
+                   "trigger_n": RETRAIN_MIN_SCORED, "trigger_mae_M": 0.2}
+        assert self._run(monkeypatch, metrics)["retrain_recommended"] is False
+
+    def test_disabled_when_serving_versions_unknown(self, monkeypatch):
+        metrics = {"n_evaluated": 20, "rolling_mae_M": 1.0,
+                   "trigger_n": RETRAIN_MIN_SCORED, "trigger_mae_M": 1.0}
+        result = self._run(monkeypatch, metrics, serving=None)
+        assert result["retrain_recommended"] is False
+        assert result["serving_versions"] is None

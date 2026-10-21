@@ -166,6 +166,16 @@ class TestConformalHalfWidths:
         r = summarize(_blocks(sar, xgbp, act), n_boot=100)
         assert r["conformal"]["half_width_by_horizon"] == pytest.approx([0.1, 0.1, 0.1])
 
+    def test_served_mae_follows_configured_weights(self, monkeypatch):
+        act = [np.array([3.0, 3.1, 3.2]) for _ in range(4)]
+        sar = [a + 0.1 for a in act]
+        xgbp = [a - 0.1 for a in act]
+        monkeypatch.setattr(wf, "ENSEMBLE_SARIMAX_WEIGHT", 1.0)
+        monkeypatch.setattr(wf, "ENSEMBLE_XGB_WEIGHT", 0.0)
+        r = summarize(_blocks(sar, xgbp, act), n_boot=100)
+        assert r["mae"]["ensemble_served"] == pytest.approx(0.1)
+        assert r["mae"]["ensemble_50_50"] == pytest.approx(0.0)
+
 
 class TestForecastOrigins:
     """Backtest origins must share production's origin weekday (the last actual)."""

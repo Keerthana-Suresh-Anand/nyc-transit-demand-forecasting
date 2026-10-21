@@ -113,18 +113,18 @@ The [live dashboard](https://nyc-transit-forecasting.streamlit.app/) is a single
 
 ```
 src/
-  ingestion/        MTA and weather fetchers; silver merge
-  transformation/   gold-layer feature engineering
-  training/         SARIMAX and XGBoost trainers
-  evaluation/       promotion gate, walk-forward backtest, PSI
-  prediction/       ensemble forecast + conformal band
-  monitoring/       rolling MAE, drift report, retrain trigger
-  dashboard/        Streamlit app
-  utils/            config, S3, MLflow registry, lineage
-pipelines/          run_* entry points called by GitHub Actions
-tests/              unit + integration (pytest)
-docker/             pipeline and dashboard images
-notebooks/          EDA
+  ingestion/          MTA and weather fetchers; silver merge
+  transformation/     gold layer: daily aggregation, features, data checks
+  training/           SARIMAX and XGBoost trainers
+  evaluation/         promotion gate, walk-forward backtest, PSI
+  prediction/         ensemble forecast + conformal band
+  monitoring/         live MAE and band coverage, drift report, retrain trigger
+  dashboard/          Streamlit app
+  utils/              config, S3, MLflow registry, lineage
+pipelines/            run_* entry points called by GitHub Actions
+.github/workflows/    CI and the four scheduled pipelines
+tests/                unit + integration (pytest)
+docker/               pipeline and dashboard images
 ```
 
 ## Running locally
@@ -158,12 +158,18 @@ To browse MLflow runs from CI, pull the store from S3 and run `mlflow ui --backe
 
 ## Limitations
 
-- **Short forward reach.** Because of the MTA's ~1–2 week publishing lag, the first part of each 14-day forecast covers days that have already happened but aren't published yet. Only the remainder is truly ahead of today.
-- **Low evaluation power.** The backtest is 11 origins over 90 days, one season. CIs are wide; a longer, multi-season window with per-origin refits would tighten them and could justify an unequal ensemble weight.
+- **Short forward reach.** The MTA publishes weekly with a ~1-week lag (nearly two weeks by the next release), so the first part of each 14-day forecast covers days that have already happened but aren't published yet. Only the remainder is truly ahead of today.
+- **Low evaluation power.** The backtest is 11 forecasts over 90 days, one season. CIs are wide; a longer, multi-season window with per-forecast refits would tighten them and could justify an unequal ensemble weight.
 - **No shock awareness.** The models learn regular patterns and can't anticipate service disruptions, major events or structural breaks.
 - **Scope.** Daily, city-wide, one city. Station- or line-level forecasting is a different and much more data-hungry problem.
+- **Late source corrections.** Each run re-fetches the last 14 days, so partial or revised days heal within a week; a correction to older data would be missed.
 - **MLflow on SQLite.** The tracking store is a SQLite file synced to S3; a team deployment would use a shared tracking server backed by Postgres.
+- **Static AWS keys in CI.** Workflows use long-lived credentials; OIDC federation (short-lived, per-run) is the planned replacement.
 
 ## Tech stack
 
-Python 3.12 · pandas · statsmodels · pmdarima · XGBoost · SHAP · MLflow · DVC · AWS S3 · Docker · GitHub Actions · Streamlit · Plotly
+Python 3.12 · pandas · scikit-learn · statsmodels · pmdarima · XGBoost · SHAP · MLflow · DVC · AWS S3 · Docker · GitHub Actions · pytest · Streamlit · Plotly
+
+## License
+
+[MIT](LICENSE)

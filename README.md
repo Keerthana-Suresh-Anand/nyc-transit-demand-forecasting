@@ -123,14 +123,14 @@ notebooks/          EDA
 ```bash
 git clone https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting
 cd nyc-transit-demand-forecasting
-pip install -e ".[pipeline,dev]"
-cp .env.example .env        # AWS, NYC Open Data, Visual Crossing keys
-
-pytest
-streamlit run src/dashboard/app.py
+pip install -e ".[pipeline,dashboard,dev]"
+pytest                      # no credentials needed: S3 and APIs are mocked
 ```
 
-**Bootstrapping a new S3 bucket:**
+Running the pipelines or the dashboard needs your own S3 bucket and API keys (`cp .env.example .env`).
+
+<details>
+<summary>Deploying your own copy</summary>
 
 ```bash
 python -m pipelines.run_ingestion     # bronze → silver → gold on S3
@@ -138,13 +138,14 @@ python -m pipelines.run_training      # train + register models in local MLflow
 aws s3 cp mlflow.db s3://YOUR_BUCKET/mlflow/mlflow.db
 aws s3 sync mlruns/ s3://YOUR_BUCKET/mlflow/mlruns/
 python -m pipelines.run_prediction    # first forecast → S3
+streamlit run src/dashboard/app.py
 ```
 
-After that the scheduled workflows take over. They need these repository secrets: `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_BUCKET_NAME`, `AWS_REGION`, `NY_APP_TOKEN`, `WEATHER_API_KEY`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
+After that the scheduled workflows take over. Repository secrets: `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_BUCKET_NAME`, `AWS_REGION`, `NY_APP_TOKEN`, `WEATHER_API_KEY`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
 To browse MLflow runs from CI, pull the store from S3 and run `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
-> The dashboard installs from `requirements.txt` because Streamlit Community Cloud doesn't support `pyproject.toml` extras. Everything else uses `pyproject.toml`.
+</details>
 
 ## Limitations
 

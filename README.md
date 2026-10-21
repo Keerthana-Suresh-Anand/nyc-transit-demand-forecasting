@@ -66,13 +66,13 @@ Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipe
 
 ## Models
 
-**SARIMAX:** weekly seasonality with exogenous temperature, precipitation, lagged snowfall and holidays. The order is found by `auto_arima`, cached to S3 and reused for 90 days, so the production model (and its coefficients) stays comparable from one retrain to the next.
+**SARIMAX:** weekly seasonality, with temperature, precipitation, lagged snowfall and holidays as external inputs. The order is found by `auto_arima`, cached to S3 and reused for 90 days, so the production model's structure (and its coefficients) stays comparable from one retrain to the next.
 
-**XGBoost:** ridership lags (1, 2, 3, 7, 14 days), 14-day rolling mean, 7-day rolling std, lagged weather and calendar features. Forecasts 14 days recursively, feeding its own predictions back as lags. SHAP values are computed every training run.
+**XGBoost:** ridership lags (1, 2, 3, 7, 14 days), 14-day rolling mean and 7-day rolling std, same-day and lagged weather, a holiday flag, and calendar features (day of week, month, weekend). Forecasts 14 days recursively, feeding its own predictions back as lags. The backtest and production forecast share one feature path, and a test checks it never reads ridership from the day being forecast or later. SHAP values are computed every training run.
 
-**Ensemble:** 50% SARIMAX + 50% XGBoost (`src/utils/config.py`).
+**Ensemble:** 50% SARIMAX + 50% XGBoost (see [Evaluation](#evaluation) for why).
 
-**Promotion:** each model is scored on a 30-day holdout, then refit on all data before registration. A new version takes the `production` alias only if its holdout MAE beats the current production version of the same model. Both models stay in production at all times since the ensemble needs both; the "champion" is recorded as metadata only.
+**Promotion:** each model is scored on its most recent 30 days, then refit on all data before registration. A new version replaces the production one only if its holdout MAE is lower. The two MAEs come from different 30-day windows, so this is a sanity gate, not a head-to-head test. That's acceptable because both models always stay in production (the ensemble needs both) and the next monthly retrain corrects a wrong call.
 
 ## Evaluation
 

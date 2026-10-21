@@ -40,6 +40,9 @@ FORECAST_HORIZON_DAYS = 14
 # conformal quantiles on walk-forward residuals (~154 pooled scores): 0.90 is
 # comfortably estimable there, where a 95% band would ride the unstable tail.
 CI_COVERAGE = 0.90
+# Label for a band calibrated as above. The coverage metric (and the dashboard,
+# via the forecast JSON) only trust bands carrying this label.
+CONFORMAL_METHOD = "conformal_walkforward"
 
 # Weather API
 WEATHER_LOCATION = "40.7812,-73.9665"  # Central Park, NYC

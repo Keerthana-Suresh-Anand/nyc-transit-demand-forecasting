@@ -138,6 +138,17 @@ class TestConformalHalfWidths:
         r = summarize(_blocks(sar, xgbp, act), n_boot=100)
         assert len(r["conformal"]["half_width_by_horizon"]) == 3
 
+    def test_conformal_calibrated_on_configured_weights(self, monkeypatch):
+        # SARIMAX +0.1, XGBoost -0.1: a 50/50 blend has zero error, an all-SARIMAX
+        # blend errs by 0.1 everywhere. The band must follow the served weights.
+        act = [np.array([3.0, 3.1, 3.2]) for _ in range(4)]
+        sar = [a + 0.1 for a in act]
+        xgbp = [a - 0.1 for a in act]
+        monkeypatch.setattr(wf, "ENSEMBLE_SARIMAX_WEIGHT", 1.0)
+        monkeypatch.setattr(wf, "ENSEMBLE_XGB_WEIGHT", 0.0)
+        r = summarize(_blocks(sar, xgbp, act), n_boot=100)
+        assert r["conformal"]["half_width_by_horizon"] == pytest.approx([0.1, 0.1, 0.1])
+
 
 class TestPinnedProductionOrder:
     """The backtest pins to production's cached SARIMAX order, and degrades to a

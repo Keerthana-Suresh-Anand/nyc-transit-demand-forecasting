@@ -93,15 +93,18 @@ class TestCiCoverage:
     what it claims. Rows without a finite band are excluded, so pre-conformal
     forecasts can't contaminate the metric."""
 
-    def _fc_with_band(self, gold, lowers, uppers):
+    def _fc_with_band(self, gold, lowers, uppers, method="conformal_walkforward"):
         n = len(lowers)
         actuals = gold["daily_ridership"].iloc[-n:] / 1_000_000
-        return pd.DataFrame({
+        fc = pd.DataFrame({
             "date": gold.index[-n:].date,
             "ensemble_forecast_M": actuals.to_numpy(),
             "ci_lower": lowers,
             "ci_upper": uppers,
         })
+        if method is not None:
+            fc["ci_method"] = method
+        return fc
 
     def test_full_coverage_when_band_contains_every_actual(self):
         gold = _make_gold(30)
@@ -137,6 +140,31 @@ class TestCiCoverage:
         lowers = [acts[0] - 1, float("nan"), acts[2] - 1, float("nan")]
         uppers = [acts[0] + 1, float("nan"), acts[2] + 1, float("nan")]
         m = _compute_forecast_metrics(self._fc_with_band(gold, lowers, uppers), gold)
+        assert m["ci_coverage_n"] == 2
+        assert m["ci_coverage_pct"] == 100.0
+
+    def test_legacy_rows_without_method_excluded(self):
+        # Pre-conformal forecasts: finite SARIMAX interval, no ci_method column
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-5:] / 1_000_000).to_numpy()
+        fc = self._fc_with_band(gold, acts - 1.0, acts + 1.0, method=None)
+        m = _compute_forecast_metrics(fc, gold)
+        assert "ci_coverage_pct" not in m
+        assert m["n_evaluated"] == 5
+
+    def test_fallback_band_excluded(self):
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-5:] / 1_000_000).to_numpy()
+        fc = self._fc_with_band(gold, acts - 1.0, acts + 1.0, method="fallback_flat_mae")
+        assert "ci_coverage_pct" not in _compute_forecast_metrics(fc, gold)
+
+    def test_mixed_files_score_only_conformal_rows(self):
+        gold = _make_gold(30)
+        acts = (gold["daily_ridership"].iloc[-4:] / 1_000_000).to_numpy()
+        legacy = self._fc_with_band(gold, acts[:2] + 1.0, acts[:2] + 2.0, method=None)  # misses
+        legacy["date"] = gold.index[-4:-2].date
+        current = self._fc_with_band(gold, acts[2:] - 1.0, acts[2:] + 1.0)  # hits
+        m = _compute_forecast_metrics(pd.concat([legacy, current], ignore_index=True), gold)
         assert m["ci_coverage_n"] == 2
         assert m["ci_coverage_pct"] == 100.0
 

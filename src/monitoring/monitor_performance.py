@@ -17,6 +17,7 @@ import pandas as pd
 from src.evaluation.drift_detector import compute_psi
 from src.utils.config import (
     CI_COVERAGE,
+    CONFORMAL_METHOD,
     GOLD_SARIMA_LOCAL_PATH,
     MAE_RETRAIN_MULTIPLIER,
     PSI_CRITICAL_THRESHOLD,
@@ -120,6 +121,7 @@ def _compute_forecast_metrics(
             records.append({
                 "actual_M": actual_M, "pred_M": pred_M, "error_M": pred_M - actual_M,
                 "ci_lower": row.get("ci_lower"), "ci_upper": row.get("ci_upper"),
+                "ci_method": row.get("ci_method"),
             })
 
     if not records:
@@ -134,11 +136,15 @@ def _compute_forecast_metrics(
     }
 
     # Empirical coverage of the served band: the check that the interval means what
-    # it claims. Only scores rows whose band is present and finite — forecasts
-    # written before the conformal band shipped carry a SARIMAX-centered interval
-    # that would make this metric describe a band no longer served.
+    # it claims. Only scores rows tagged as a calibrated conformal band. Forecasts
+    # written before the conformal band shipped have no ci_method and carry a finite
+    # SARIMAX-centered 95% interval in ci_lower/ci_upper, and fallback rows carry a
+    # flat MAE band — either would make this metric describe a band that isn't the
+    # calibrated one.
     covered, n_band = 0, 0
     for r in records:
+        if r["ci_method"] != CONFORMAL_METHOD:
+            continue
         lo, hi = r["ci_lower"], r["ci_upper"]
         if lo is None or hi is None or not (np.isfinite(lo) and np.isfinite(hi)):
             continue

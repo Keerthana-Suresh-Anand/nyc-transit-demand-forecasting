@@ -59,10 +59,10 @@ Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipe
 | Workflow | Trigger | Does |
 |----------|---------|------|
 | Ingestion | Wednesdays 21:00 UTC | Fetch new data, rebuild silver + gold, DVC snapshot, dispatch prediction |
-| Training | First Wednesday of the month, or dispatched by monitoring | Train, gate, register, run walk-forward backtest, dispatch prediction |
-| Prediction | Dispatched by ingestion or training | Write the 14-day ensemble forecast to S3 |
-| Monitoring | Daily 08:00 UTC | Score past forecasts against actuals, compute PSI, dispatch training on degradation |
-| CI & Docker | Push / PR to main | Lint, unit + integration tests; on main, build and push pipeline + dashboard images |
+| Training | Monthly (first week of the month), or dispatched by monitoring | Train, gate, register, run walk-forward backtest, sync MLflow to S3, dispatch prediction |
+| Prediction | Dispatched by ingestion or training | Pull the pinned gold version, write the 14-day ensemble forecast to S3 |
+| Monitoring | Daily 08:00 UTC | Score past forecasts against actuals (MAE, band coverage), compute PSI, dispatch training on degradation (7-day cooldown) |
+| CI & Docker | Push / PR to main | Lint, unit + integration tests; on main, build and push images (pipelines run the `:stable` tag) |
 
 ## Models
 

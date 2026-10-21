@@ -26,13 +26,13 @@ The ensemble beats seasonal-naive (same weekday last week) by ~40%. Seasonal-nai
 
 The MTA publishes ridership weekly (Wednesdays) with a ~1-week lag. Each week the system:
 
-1. **Ingests** MTA ridership, Visual Crossing weather and Ticketmaster events, then builds the silver and gold layers on S3 and snapshots them with DVC
+1. **Ingests** MTA ridership and Visual Crossing weather, then builds the silver and gold layers on S3 and snapshots them with DVC
 2. **Forecasts** the next 14 days with a 50/50 SARIMAX + XGBoost ensemble and a 90% conformal prediction band
 
 Monthly (or on a drift trigger), it **retrains** both models and promotes each one only if it beats its current production version. Daily, it **monitors** live forecast error and triggers a retrain if accuracy degrades.
 
 ```
-MTA + Visual Crossing + Ticketmaster APIs
+MTA + Visual Crossing APIs
         │
         ▼
 S3 bronze/            raw API pulls per fetch window
@@ -104,7 +104,7 @@ The [live dashboard](https://nyc-transit-forecasting.streamlit.app/) shows the 1
 
 ```
 src/
-  ingestion/        MTA, weather and events fetchers; silver merge
+  ingestion/        MTA and weather fetchers; silver merge
   transformation/   gold-layer feature engineering
   training/         SARIMAX and XGBoost trainers
   evaluation/       promotion gate, walk-forward backtest, PSI
@@ -124,7 +124,7 @@ notebooks/          EDA
 git clone https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting
 cd nyc-transit-demand-forecasting
 pip install -e ".[pipeline,dev]"
-cp .env.example .env        # AWS, NYC Open Data, Visual Crossing, Ticketmaster keys
+cp .env.example .env        # AWS, NYC Open Data, Visual Crossing keys
 
 pytest
 streamlit run src/dashboard/app.py
@@ -140,7 +140,7 @@ aws s3 sync mlruns/ s3://YOUR_BUCKET/mlflow/mlruns/
 python -m pipelines.run_prediction    # first forecast → S3
 ```
 
-After that the scheduled workflows take over. They need these repository secrets: `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_BUCKET_NAME`, `AWS_REGION`, `NY_APP_TOKEN`, `WEATHER_API_KEY`, `TICKETMASTER_API_KEY`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
+After that the scheduled workflows take over. They need these repository secrets: `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `AWS_BUCKET_NAME`, `AWS_REGION`, `NY_APP_TOKEN`, `WEATHER_API_KEY`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
 To browse MLflow runs from CI, pull the store from S3 and run `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
@@ -152,7 +152,6 @@ To browse MLflow runs from CI, pull the store from S3 and run `mlflow ui --backe
 - **Low evaluation power.** The backtest is 11 origins over 90 days, one season. CIs are wide; a longer, multi-season window with per-origin refits would tighten them and could justify an unequal ensemble weight.
 - **No shock awareness.** The models learn regular patterns and can't anticipate service disruptions, major events or structural breaks.
 - **Scope.** Daily, city-wide, one city. Station- or line-level forecasting is a different and much more data-hungry problem.
-- **Events aren't used yet.** Ticketmaster events are ingested to bronze but are too sparse to help a daily city-wide model, so they aren't model features.
 - **MLflow on SQLite.** The tracking store is a SQLite file synced to S3; a team deployment would use a shared tracking server backed by Postgres.
 
 ## Tech stack

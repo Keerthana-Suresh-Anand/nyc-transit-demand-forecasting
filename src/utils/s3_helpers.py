@@ -56,6 +56,19 @@ def list_s3_files(s3_client, prefix: str, extension: str = ".csv") -> list[str]:
     return files
 
 
+def list_s3_files_with_mtime(
+    s3_client, prefix: str, extension: str = ".csv"
+) -> list[tuple[str, datetime]]:
+    """Like list_s3_files, but with each object's LastModified (i.e. its fetch time)."""
+    paginator = s3_client.get_paginator("list_objects_v2")
+    files = []
+    for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            if obj["Key"].endswith(extension):
+                files.append((obj["Key"], obj["LastModified"]))
+    return files
+
+
 def read_s3_csv(s3_client, key: str) -> pd.DataFrame:
     """Download a CSV from S3 and return as DataFrame."""
     logger.debug(f"Downloading: s3://{BUCKET}/{key}")

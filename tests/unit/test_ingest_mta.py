@@ -1,5 +1,5 @@
 """Tests for MTA ingestion: SoQL builder, fetch logic, and run() orchestration."""
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 from urllib.parse import unquote
 
@@ -9,7 +9,13 @@ import pytest
 from moto import mock_aws
 
 from src.ingestion.ingest_mta import build_soql_query, fetch_mta_data, run
-from src.utils.config import S3_MTA_PREFIX, S3_MTA_WATERMARK
+from src.utils.config import (
+    MTA_LAG_DAYS,
+    MTA_LOOKBACK_DAYS,
+    MTA_START_DATE,
+    S3_MTA_PREFIX,
+    S3_MTA_WATERMARK,
+)
 from src.utils.s3_helpers import MissingCredentialsError
 
 BUCKET = "test-bucket"
@@ -122,18 +128,41 @@ class TestIngestMtaRun:
             "daily_ridership": [50000, 60000],
         })
 
-    def test_skips_fetch_when_data_is_up_to_date(self, s3, monkeypatch):
+    def test_refetches_lookback_window_ending_at_watermark(self, s3, monkeypatch):
         monkeypatch.setattr("src.ingestion.ingest_mta.get_s3_client", lambda: s3)
-        # Watermark = today means start > end → skip
-        s3.put_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK, Body=str(date.today()).encode())
+        watermark = date.today() - timedelta(days=MTA_LAG_DAYS)
+        s3.put_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK, Body=str(watermark).encode())
 
-        fetch_called = []
+        calls = []
         monkeypatch.setattr(
             "src.ingestion.ingest_mta.fetch_mta_data",
-            lambda s, e: fetch_called.append(True) or pd.DataFrame(),
+            lambda s, e: calls.append((s, e)) or pd.DataFrame(),
         )
         run()
-        assert not fetch_called
+        # Even with nothing new published, the last MTA_LOOKBACK_DAYS are re-fetched
+        assert calls == [(watermark - timedelta(days=MTA_LOOKBACK_DAYS - 1), watermark)]
+
+    def test_lookback_never_starts_before_dataset_start(self, s3, monkeypatch):
+        monkeypatch.setattr("src.ingestion.ingest_mta.get_s3_client", lambda: s3)
+        s3.put_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK, Body=MTA_START_DATE.encode())
+        calls = []
+        monkeypatch.setattr(
+            "src.ingestion.ingest_mta.fetch_mta_data",
+            lambda s, e: calls.append(s) or pd.DataFrame(),
+        )
+        run()
+        assert calls[0] == date.fromisoformat(MTA_START_DATE)
+
+    def test_watermark_never_moves_backwards(self, s3, monkeypatch):
+        monkeypatch.setattr("src.ingestion.ingest_mta.get_s3_client", lambda: s3)
+        # Re-fetch returns only older dates than the current watermark
+        s3.put_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK, Body=b"2025-02-10")
+        monkeypatch.setattr("src.ingestion.ingest_mta.fetch_mta_data", lambda s, e: self._sample_df())
+
+        run()
+
+        obj = s3.get_object(Bucket=BUCKET, Key=S3_MTA_WATERMARK)
+        assert obj["Body"].read().decode().strip() == "2025-02-10"
 
     def test_writes_csv_to_s3_when_new_data_available(self, s3, monkeypatch):
         monkeypatch.setattr("src.ingestion.ingest_mta.get_s3_client", lambda: s3)

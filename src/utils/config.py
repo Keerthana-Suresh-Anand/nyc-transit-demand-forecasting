@@ -31,6 +31,11 @@ MTA_HISTORICAL_END_DATE = "2024-12-31"
 MTA_BASE_URL = f"https://data.ny.gov/resource/{MTA_DATASET_ID}.csv"
 MTA_START_DATE = "2022-01-01"
 MTA_LAG_DAYS = 6
+# Every ingestion re-fetches this many days back from the watermark, and silver
+# replaces those dates with the newest fetch. The last day of a fetch window can be
+# only partly published (e.g. 2026-07-08 landed at 1.19M vs 4.26M), and without a
+# re-fetch a partial day would stay frozen in the data forever.
+MTA_LOOKBACK_DAYS = 14
 
 # Forecast horizon (days) — single source of truth shared by the prediction
 # pipeline, the walk-forward backtest, and the weather forecast fetch below.

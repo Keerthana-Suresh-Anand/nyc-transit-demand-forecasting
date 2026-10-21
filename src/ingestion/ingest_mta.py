@@ -10,6 +10,7 @@ from src.utils.config import (
     MTA_HISTORICAL_DATASET_ID,
     MTA_HISTORICAL_END_DATE,
     MTA_LAG_DAYS,
+    MTA_LOOKBACK_DAYS,
     MTA_START_DATE,
     NY_APP_TOKEN,
     S3_MTA_PREFIX,
@@ -112,7 +113,13 @@ def run() -> None:
     s3 = get_s3_client()
 
     last_date = read_watermark(s3, S3_MTA_WATERMARK)
-    start_date = (last_date + timedelta(days=1)) if last_date else date.fromisoformat(MTA_START_DATE)
+    first_date = date.fromisoformat(MTA_START_DATE)
+    # Re-fetch a lookback window ending at the watermark, not just the new days, so
+    # a day that was only partly published at the last fetch is replaced in silver.
+    start_date = (
+        max(last_date - timedelta(days=MTA_LOOKBACK_DAYS - 1), first_date)
+        if last_date else first_date
+    )
     end_date = date.today() - timedelta(days=MTA_LAG_DAYS)
 
     if start_date > end_date:
@@ -131,7 +138,8 @@ def run() -> None:
 
     s3_key = f"{S3_MTA_PREFIX}mta_daily_ridership_{min_date}_{max_date}.csv"
     write_s3_csv(s3, df, s3_key)
-    write_watermark(s3, S3_MTA_WATERMARK, max_date)
+    # Never move the watermark backwards (a lookback-only fetch can end before it).
+    write_watermark(s3, S3_MTA_WATERMARK, max(max_date, str(last_date)) if last_date else max_date)
 
     logger.info(f"MTA ingestion complete: {len(df):,} rows, {min_date} to {max_date}")
 

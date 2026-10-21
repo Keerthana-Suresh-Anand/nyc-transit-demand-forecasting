@@ -1,7 +1,6 @@
 # NYC Transit Demand Forecasting
 
 [![CI](https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting/actions/workflows/ci.yml/badge.svg)](https://github.com/Keerthana-Suresh-Anand/nyc-transit-demand-forecasting/actions/workflows/ci.yml)
-![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 
 **Live dashboard:** https://nyc-transit-forecasting.streamlit.app/
 

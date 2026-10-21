@@ -258,6 +258,8 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
             "xgboost": xgb_mae,
             "ensemble_50_50": _mae(a, ens_50),
             "ensemble_best": best_w_mae,
+            # At the configured weights — the monitoring baseline for the served line.
+            "ensemble_served": _mae(a, np.concatenate(served_blocks)),
         },
         "mape": {
             "seasonal_naive": _mape(a, sn),

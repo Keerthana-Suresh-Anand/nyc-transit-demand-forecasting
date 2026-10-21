@@ -3,11 +3,13 @@ Post-hoc performance monitor.
 
 1. Loads the last N weekly forecast parquets from S3.
 2. Matches predicted dates that are now in the past against gold actuals.
-3. Computes rolling MAE / MAPE and compares against training-time MAE.
+3. Computes rolling MAE / MAPE over all of them, plus a trigger MAE over only the
+   rows produced by the model versions currently serving.
 4. Runs PSI on the last 14 days of weather features vs 90-day reference window.
 5. Writes a structured JSON report to S3.
-6. If rolling MAE exceeds the retrain threshold (and not within the cooldown),
-   writes retrain_flag.json. PSI is informational only and never triggers a retrain.
+6. If the trigger MAE exceeds the retrain threshold (with enough scored rows, and
+   not within the cooldown), writes retrain_flag.json. PSI is informational only
+   and never triggers a retrain.
 """
 from datetime import date
 
@@ -23,9 +25,11 @@ from src.utils.config import (
     PSI_CRITICAL_THRESHOLD,
     PSI_MODERATE_THRESHOLD,
     RETRAIN_COOLDOWN_DAYS,
+    RETRAIN_MIN_SCORED,
     S3_DRIFT_REPORT_PREFIX,
     S3_FORECAST_PREFIX,
     S3_GOLD_SARIMA_KEY,
+    S3_LATEST_FORECAST_KEY,
     S3_RETRAIN_FLAG_KEY,
     S3_RETRAIN_HISTORY_KEY,
     S3_TRAINING_BASELINE_KEY,
@@ -58,10 +62,15 @@ def load_baseline_mae(s3) -> tuple[float | None, str | None]:
     single-holdout ensemble MAE from the training baseline (the walk-forward is
     best-effort and may be absent), else (None, None) — which disables the
     threshold check. Returns (mae, source).
+
+    Within the walk-forward, the MAE of the ensemble at the configured weights is
+    preferred over the fixed 50/50 one; backtests written before it was recorded
+    only have the 50/50 key.
     """
     try:
         wf = read_s3_json(s3, S3_WALKFORWARD_KEY)
-        mae = float(wf["mae"]["ensemble_50_50"])
+        mae_block = wf["mae"]
+        mae = float(mae_block.get("ensemble_served", mae_block["ensemble_50_50"]))
         logger.info(
             f"Baseline: walk-forward ensemble MAE {mae:.4f}M (run {wf.get('run_date')})"
         )
@@ -109,8 +118,30 @@ def _load_past_forecasts(s3) -> pd.DataFrame | None:
     return pd.concat(rows, ignore_index=True) if rows else None
 
 
+def _as_version(value) -> int | None:
+    """Model version from a forecast row or JSON, or None if absent/NaN."""
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
+def _serving_versions(s3) -> dict[str, int] | None:
+    """Versions of the models behind the latest forecast, i.e. the ones serving now.
+
+    None when either version is unknown, which disables the retrain trigger: its
+    errors can't be attributed to the serving models, so it must not fire on them.
+    """
+    try:
+        mv = read_s3_json(s3, S3_LATEST_FORECAST_KEY).get("model_versions") or {}
+        versions = {k: _as_version((mv.get(k) or {}).get("version")) for k in ("sarimax", "xgboost")}
+    except Exception as e:
+        logger.warning(f"Could not read serving model versions: {e}")
+        return None
+    return versions if all(v is not None for v in versions.values()) else None
+
+
 def _compute_forecast_metrics(
-    past_fc: pd.DataFrame, gold: pd.DataFrame
+    past_fc: pd.DataFrame, gold: pd.DataFrame, serving: dict[str, int] | None = None
 ) -> dict:
     records = []
     for _, row in past_fc.iterrows():
@@ -122,10 +153,12 @@ def _compute_forecast_metrics(
                 "actual_M": actual_M, "pred_M": pred_M, "error_M": pred_M - actual_M,
                 "ci_lower": row.get("ci_lower"), "ci_upper": row.get("ci_upper"),
                 "ci_method": row.get("ci_method"),
+                "sarimax_version": _as_version(row.get("sarimax_version")),
+                "xgboost_version": _as_version(row.get("xgboost_version")),
             })
 
     if not records:
-        return {"n_evaluated": 0}
+        return {"n_evaluated": 0, "trigger_n": 0}
 
     errors = np.array([r["error_M"] for r in records])
     actuals = np.array([r["actual_M"] for r in records])
@@ -134,6 +167,20 @@ def _compute_forecast_metrics(
         "rolling_mae_M": float(np.mean(np.abs(errors))),
         "rolling_mape_pct": float(np.mean(np.abs(errors / actuals)) * 100),
     }
+
+    # Trigger MAE: only forecasts made by the models serving now. The rolling MAE
+    # above spans the last N forecast files whatever produced them, so after a
+    # retrain it would keep reporting the replaced models' errors and re-fire the
+    # trigger every cooldown until those files aged out.
+    trigger_errors = [
+        abs(r["error_M"]) for r in records
+        if serving is not None
+        and r["sarimax_version"] == serving["sarimax"]
+        and r["xgboost_version"] == serving["xgboost"]
+    ]
+    metrics["trigger_n"] = len(trigger_errors)
+    if trigger_errors:
+        metrics["trigger_mae_M"] = float(np.mean(trigger_errors))
 
     # Empirical coverage of the served band: the check that the interval means what
     # it claims. Only scores rows tagged as a calibrated conformal band. Forecasts
@@ -206,11 +253,12 @@ def run(training_mae: float | None = None, baseline_source: str | None = None) -
         return {"status": "error", "reason": "no_gold_data"}
 
     # ── Forecast accuracy ──────────────────────────────────────────────────
+    serving = _serving_versions(s3)
     past_fc = _load_past_forecasts(s3)
     if past_fc is not None:
-        fc_metrics = _compute_forecast_metrics(past_fc, gold)
+        fc_metrics = _compute_forecast_metrics(past_fc, gold, serving)
     else:
-        fc_metrics = {"n_evaluated": 0}
+        fc_metrics = {"n_evaluated": 0, "trigger_n": 0}
         logger.info("No past forecast files found")
 
     # ── PSI drift ─────────────────────────────────────────────────────────
@@ -228,13 +276,22 @@ def run(training_mae: float | None = None, baseline_source: str | None = None) -
     # PSI on weather features fires seasonal false alarms every spring/fall.
     # Retraining is triggered only by MAE degradation, never by PSI alone.
     retrain_reasons: list[str] = []
-    rolling_mae = fc_metrics.get("rolling_mae_M")
-    if training_mae is not None and rolling_mae is not None:
+    trigger_mae = fc_metrics.get("trigger_mae_M")
+    trigger_n = fc_metrics.get("trigger_n", 0)
+    if serving is None:
+        logger.warning("Serving model versions unknown — retrain trigger disabled")
+    elif trigger_n < RETRAIN_MIN_SCORED:
+        logger.info(
+            f"Retrain trigger waiting for data — {trigger_n}/{RETRAIN_MIN_SCORED} "
+            f"forecast-days scored for the serving models"
+        )
+    elif training_mae is not None and trigger_mae is not None:
         threshold = training_mae * MAE_RETRAIN_MULTIPLIER
-        if rolling_mae > threshold:
+        if trigger_mae > threshold:
             retrain_reasons.append(
-                f"Rolling MAE={rolling_mae:.4f}M exceeds {MAE_RETRAIN_MULTIPLIER}× "
-                f"baseline MAE={training_mae:.4f}M ({baseline_source or 'unknown'})"
+                f"Serving-model MAE={trigger_mae:.4f}M over {trigger_n} days exceeds "
+                f"{MAE_RETRAIN_MULTIPLIER}× baseline MAE={training_mae:.4f}M "
+                f"({baseline_source or 'unknown'})"
             )
 
     retrain_recommended = len(retrain_reasons) > 0
@@ -264,6 +321,8 @@ def run(training_mae: float | None = None, baseline_source: str | None = None) -
         "retrain_triggered": retrain_triggered,
         "cooldown_active": cooldown_active,
         "retrain_reasons": retrain_reasons,
+        "serving_versions": serving,
+        "trigger_min_n": RETRAIN_MIN_SCORED,
         **fc_metrics,
     }
     if training_mae is not None:
@@ -279,7 +338,8 @@ def run(training_mae: float | None = None, baseline_source: str | None = None) -
             "trigger_date": str(today),
             "reasons": retrain_reasons,
             "max_psi": max_psi,
-            "rolling_mae_M": rolling_mae,
+            "trigger_mae_M": trigger_mae,
+            "trigger_n": trigger_n,
         }
         write_s3_json(s3, flag, S3_RETRAIN_FLAG_KEY)
         _record_retrain_trigger(s3, today)

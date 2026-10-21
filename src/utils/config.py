@@ -132,6 +132,10 @@ MAE_RETRAIN_MULTIPLIER = 1.5  # retrain if rolling MAE > 1.5x training MAE
 # training job that keeps failing before it clears the flag) would re-trigger
 # training on every daily monitoring run. Trigger dates are kept in S3.
 RETRAIN_COOLDOWN_DAYS = 7
+# The retrain trigger only scores forecasts made by the models currently serving,
+# so it resets after every model change. This many scored forecast-days are needed
+# before it can fire (~2 weeks of actuals), so one bad day can't trigger a retrain.
+RETRAIN_MIN_SCORED = 14
 S3_RETRAIN_HISTORY_KEY = "monitoring/retrain_history.json"
 
 # SARIMAX order persistence. auto_arima re-searched every training cycle makes the

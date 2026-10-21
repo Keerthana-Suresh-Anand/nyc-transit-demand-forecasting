@@ -115,7 +115,8 @@ def _conformal_band(s3, ensemble_pred: np.ndarray) -> tuple[np.ndarray, np.ndarr
     else:
         # Degraded band: a flat multiple of the backtest ensemble MAE. Explicitly
         # labelled so the dashboard and coverage metric never present it as calibrated.
-        mae = (wf.get("mae") or {}).get("ensemble_50_50")
+        wf_mae = wf.get("mae") or {}
+        mae = wf_mae.get("ensemble_served", wf_mae.get("ensemble_50_50"))
         if mae is None:
             logger.warning("No conformal widths and no backtest MAE — writing no CI band")
             nan = np.full(len(ensemble_pred), np.nan)
@@ -310,6 +311,7 @@ def run() -> None:
         f"day {FORECAST_DAYS} +/-{(ci_upper[-1] - ci_lower[-1]) / 2:.3f}M"
     )
 
+    model_versions = _production_versions()
     df_forecast = pd.DataFrame({
         "date": future_dates,
         "sarimax_forecast_M": sarimax_pred.values,
@@ -321,6 +323,9 @@ def run() -> None:
         "ci_method": ci_meta["method"],
         "sarimax_ci_lower": sarimax_conf_int.iloc[:, 0].values,
         "sarimax_ci_upper": sarimax_conf_int.iloc[:, 1].values,
+        # Per-row so the retrain trigger can score only the serving models' forecasts.
+        "sarimax_version": (model_versions.get("sarimax") or {}).get("version"),
+        "xgboost_version": (model_versions.get("xgboost") or {}).get("version"),
     })
 
     run_date = str(date.today())
@@ -333,7 +338,7 @@ def run() -> None:
         "sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
         "xgboost_weight": ENSEMBLE_XGB_WEIGHT,
         "ci": ci_meta,
-        "model_versions": _production_versions(),
+        "model_versions": model_versions,
         "gold_sarima_dvc_md5": read_gold_dvc_md5(),
         "image_digest": PIPELINE_IMAGE_DIGEST,
         "last_actual_date": str(df_sarima.index.max().date()),

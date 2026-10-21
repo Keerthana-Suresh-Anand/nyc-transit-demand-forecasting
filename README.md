@@ -31,30 +31,30 @@ The MTA publishes ridership weekly (Wednesdays) with a ~1-week lag. Each week th
 
 Monthly (or on a drift trigger), it **retrains** both models and promotes each one only if it beats its current production version. Daily, it **monitors** live forecast error and triggers a retrain if accuracy degrades.
 
-```
-MTA + Visual Crossing APIs
-        │
-        ▼
-S3 bronze             raw API responses
-        │
-        ▼
-S3 silver             ridership + weather, merged             (DVC-versioned)
-        │
-        ▼
-S3 gold               daily model-ready tables:               (DVC-versioned)
-                      SARIMAX inputs, XGBoost features
-        │
-        ▼
-MLflow registry       SARIMAX + XGBoost, both in production
-        │
-        ▼
-S3 forecasts          14-day ensemble forecast + band, with model versions
-        │
-        ▼
-Streamlit dashboard
+```mermaid
+flowchart TD
+    apis["MTA ridership API<br/>Visual Crossing weather API"]
+    apis -->|weekly ingestion| bronze["S3 bronze<br/>raw API responses"]
+    bronze --> silver["S3 silver<br/>station-level ridership + weather"]
+    silver --> gold["S3 gold<br/>city-wide daily totals + features"]
+
+    gold -->|monthly or on trigger| train["Training<br/>holdout gate + walk-forward backtest"]
+    train --> registry["MLflow registry<br/>SARIMAX + XGBoost, both in production"]
+
+    registry --> predict["Prediction<br/>50/50 ensemble + conformal band"]
+    gold --> predict
+    bronze -->|weather forecast| predict
+    train -->|backtest residuals| predict
+
+    predict --> forecasts["S3 forecasts<br/>with model versions + data hash"]
+    forecasts --> monitor["Monitoring, daily<br/>live MAE, band coverage, PSI"]
+    gold -->|actuals| monitor
+    monitor -->|"MAE > 1.5× baseline"| train
+
+    forecasts --> dash["Streamlit dashboard"]
 ```
 
-All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
+Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
 
 | Workflow | Trigger | Does |
 |----------|---------|------|

@@ -17,6 +17,7 @@ from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
 from src.utils.config import (
     CI_COVERAGE,
+    CONFORMAL_METHOD,
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
     FORECAST_HORIZON_DAYS,
@@ -99,7 +100,7 @@ def _conformal_band(s3, ensemble_pred: np.ndarray) -> tuple[np.ndarray, np.ndarr
     back to a flat band from the backtest's overall ensemble MAE if the conformal
     block is missing (e.g. a walk-forward that failed on the last training run).
     """
-    meta: dict = {"coverage": CI_COVERAGE, "method": "conformal_walkforward"}
+    meta: dict = {"coverage": CI_COVERAGE, "method": CONFORMAL_METHOD}
     try:
         wf = read_s3_json(s3, S3_WALKFORWARD_KEY)
     except Exception as e:
@@ -316,6 +317,8 @@ def run() -> None:
         "ensemble_forecast_M": ensemble_pred,
         "ci_lower": ci_lower,
         "ci_upper": ci_upper,
+        # Per-row so monitoring can score only calibrated bands without the JSON.
+        "ci_method": ci_meta["method"],
         "sarimax_ci_lower": sarimax_conf_int.iloc[:, 0].values,
         "sarimax_ci_upper": sarimax_conf_int.iloc[:, 1].values,
     })

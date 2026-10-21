@@ -30,6 +30,8 @@ from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
 from src.transformation import preprocess_ml
 from src.utils.config import (
     CI_COVERAGE,
+    ENSEMBLE_SARIMAX_WEIGHT,
+    ENSEMBLE_XGB_WEIGHT,
     FORECAST_HORIZON_DAYS,
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
@@ -238,8 +240,13 @@ def summarize(blocks: dict, n_boot: int = 10000) -> dict:
     a_mat = np.vstack(blocks["actual"])
     mae_by_horizon = [float(v) for v in np.abs(ens_mat - a_mat).mean(axis=0)]
 
-    # Conformal band for the *ensemble* — the series production actually serves.
-    conformal = conformal_half_widths(ens50_blocks, blocks["actual"], CI_COVERAGE)
+    # Conformal band for the *ensemble* — the series production actually serves, so
+    # it's calibrated on the configured weights, not the fixed 50/50 used above.
+    served_blocks = [
+        ENSEMBLE_SARIMAX_WEIGHT * sb + ENSEMBLE_XGB_WEIGHT * xb
+        for sb, xb in zip(blocks["sarimax"], blocks["xgboost"], strict=True)
+    ]
+    conformal = conformal_half_widths(served_blocks, blocks["actual"], CI_COVERAGE)
 
     return {
         "n_origins": blocks["n_origins"],

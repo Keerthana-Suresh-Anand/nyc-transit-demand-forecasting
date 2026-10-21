@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from src.transformation.preprocess_sarima import transform, validate_gold
+from src.transformation.preprocess_sarima import find_unexplained_drops, transform, validate_gold
 
 
 def _make_input(start="2025-01-01", periods=20) -> pd.DataFrame:
@@ -91,3 +91,55 @@ class TestValidateGold:
         finally:
             preprocess_sarima.logger.removeHandler(handler)
         assert any("daily_ridership" in r.getMessage() for r in records)
+
+
+class TestFindUnexplainedDrops:
+    """Partially published MTA days (2026-07-08 landed at 0.28x its weekday) must be
+    caught; real drops with a holiday or weather explanation must not."""
+
+    # Mid-March 2025: no US holidays nearby
+    START, DAY = "2025-03-03", pd.Timestamp("2025-03-19")
+
+    def _gold(self, **overrides) -> pd.DataFrame:
+        g = transform(_make_input(start=self.START, periods=42))
+        for col, value in overrides.items():
+            g.loc[self.DAY, col] = value
+        return g
+
+    def test_flags_partial_day_with_no_explanation(self):
+        g = self._gold(daily_ridership=600_000.0)
+        assert list(find_unexplained_drops(g)) == [self.DAY]
+
+    def test_normal_history_has_no_flags(self):
+        assert find_unexplained_drops(self._gold()).empty
+
+    def test_moderate_dip_not_flagged(self):
+        assert find_unexplained_drops(self._gold(daily_ridership=1_400_000.0)).empty  # 0.7x
+
+    def test_holiday_explains_drop(self):
+        assert find_unexplained_drops(self._gold(daily_ridership=600_000.0, is_holiday=1)).empty
+
+    def test_snow_explains_drop(self):
+        assert find_unexplained_drops(self._gold(daily_ridership=600_000.0, snow=10.0)).empty
+
+    def test_previous_day_snow_explains_drop(self):
+        assert find_unexplained_drops(self._gold(daily_ridership=600_000.0, snow_lag1=10.0)).empty
+
+    def test_heavy_rain_explains_drop(self):
+        assert find_unexplained_drops(self._gold(daily_ridership=600_000.0, precip=40.0)).empty
+
+    def test_newest_day_checked_against_past_weeks_only(self):
+        # The real failure mode: the partial day is the last row of the frame
+        g = transform(_make_input(start=self.START, periods=30))
+        last = g.index[-1]
+        g.loc[last, "daily_ridership"] = 600_000.0
+        assert list(find_unexplained_drops(g)) == [last]
+
+    def test_validate_gold_warns_on_drop(self, monkeypatch):
+        # Project logger doesn't propagate to caplog — capture the warning call itself
+        from src.transformation import preprocess_sarima
+
+        messages: list[str] = []
+        monkeypatch.setattr(preprocess_sarima.logger, "warning", messages.append)
+        validate_gold(self._gold(daily_ridership=600_000.0))
+        assert any("unexplained ridership drop" in m for m in messages)

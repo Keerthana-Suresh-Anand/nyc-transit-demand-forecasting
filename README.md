@@ -35,20 +35,20 @@ Monthly (or on a drift trigger), it **retrains** both models and promotes each o
 MTA + Visual Crossing APIs
         │
         ▼
-S3 bronze/            raw API pulls per fetch window
+S3 bronze             raw API responses
         │
         ▼
-S3 silver/            merged ridership + weather          (DVC-versioned)
+S3 silver             ridership + weather, merged             (DVC-versioned)
         │
         ▼
-S3 gold/              mta_sarima.parquet  daily aggregate + weather + holidays
-                      mta_ml.parquet      + lag/rolling features for XGBoost
+S3 gold               daily model-ready tables:               (DVC-versioned)
+                      SARIMAX inputs, XGBoost features
         │
         ▼
-MLflow registry       SARIMAX + XGBoost, both @production
+MLflow registry       SARIMAX + XGBoost, both in production
         │
         ▼
-S3 gold/forecasts/    forecast_{date}.parquet + latest_forecast.json
+S3 forecasts          14-day ensemble forecast + band, with model versions
         │
         ▼
 Streamlit dashboard

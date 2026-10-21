@@ -90,11 +90,13 @@ SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an 
 
 **Prediction band.** The 90% band is conformal: its width comes from the ensemble's own backtest errors. Errors are pooled across all 14 days ahead and rescaled per day, so the band widens with lead time. Coverage holds on average across the 14 days rather than for each day, and it's approximate because errors from consecutive forecasts aren't fully independent. Live coverage is tracked daily.
 
-## Monitoring
+## Monitoring and traceability
 
-- **Retrain trigger:** rolling forecast MAE > 1.5× the walk-forward ensemble MAE (falls back to the 30-day holdout MAE if no backtest exists). A 7-day cooldown stops persistent degradation from dispatching training every day.
-- **PSI** on weather features (last 14 days vs the prior 90) is reported on the dashboard but never triggers retraining. Weather drifts with the seasons, so it would fire false alarms every spring and fall.
-- **Traceability:** every forecast records the model versions, MLflow run IDs and the gold-data DVC hash that produced it.
+- **Retrain trigger:** each day, forecasts from the models currently in production are scored against actuals as they arrive. Once at least 14 days are scored, training is dispatched if their MAE exceeds 1.5× the backtest ensemble MAE (or the 30-day holdout MAE if no backtest exists). A 7-day cooldown caps retrains at one per week.
+- **Band coverage:** the same check reports how often actuals land inside the 90% band.
+- **Data drift:** PSI on weather features (last 14 days vs the prior 90) is shown on the dashboard but never triggers retraining. Weather drifts with the seasons, so it would fire false alarms every spring and fall.
+- **Pipeline health:** every run logs its status, duration and any error to S3, and the dashboard shows the latest run of each pipeline.
+- **Traceability:** every forecast records the model versions, MLflow run IDs, gold-data DVC hash and Docker image digest that produced it.
 
 ## Dashboard
 

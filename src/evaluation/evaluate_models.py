@@ -5,13 +5,27 @@ Both model families always go to Production (the ensemble uses both); the gate
 only decides whether the newest version of each family replaces the previous
 Production version of that family.
 
-Promotion is based on the honest out-of-sample MAE that each training run logged
-for its version. Production models are refit on the *full* dataset before being
-registered, so re-forecasting them here would score them on data they trained on
-(in-sample) and be meaningless — the training run is the single owner of the
-holdout. Each training run also logs its per-day holdout predictions, which this
-module reads to run the ensemble weight analysis on a common, out-of-sample window
-for both families.
+Promotion is head-to-head on one window: the candidate's TEST_DAYS holdout. The
+candidate side is the per-day holdout forecast its training run logged (made by an
+eval model fit only on data before the window — the registered candidate is a
+full-data refit, so it can't be scored there). The Production side is that version
+re-scored here on the same days, through the serving code path: SARIMAX re-anchored
+on actuals up to the day before the window with its own scaler, XGBoost forecast
+iteratively from lags known at that point. The better of the two is promoted; a
+seasonal-naive forecast made from the same origin is logged alongside, with a
+warning when the served version doesn't beat it.
+
+Comparing each version's own logged MAE instead (the earlier design) compared
+different windows: a version scored on an easy early-summer month kept beating every
+later candidate scored on a harder one, and Production went four months without a
+promotion. When Production can't be scored fairly — its training data reaches into
+the window (e.g. a drift retrain soon after the last one), or its artifacts or
+feature set no longer load — the gate falls back to the naive floor alone, so it can
+never freeze again. Every decision is recorded in the training baseline JSON.
+
+Each training run also logs its per-day holdout predictions, which this module reads
+to run the ensemble weight analysis on a common, out-of-sample window for both
+families.
 
 The recommended weight is reported, not auto-applied: tuning the shipped weight on
 a short holdout each run would overfit and make the production weight unstable
@@ -22,9 +36,13 @@ The baseline's ensemble MAE is computed from the freshly trained candidates even
 when one failed its gate, so the JSON records both the candidate versions it was
 computed from and the post-gate Production versions, making any mismatch visible.
 """
+import math
+import pickle
 import warnings
 
 import mlflow
+import mlflow.statsmodels
+import mlflow.xgboost
 import numpy as np
 import pandas as pd
 from mlflow import MlflowClient
@@ -33,14 +51,17 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from src.utils.config import (
     ENSEMBLE_SARIMAX_WEIGHT,
     ENSEMBLE_XGB_WEIGHT,
+    GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
     S3_TRAINING_BASELINE_KEY,
+    SARIMAX_EXOG_COLS,
     SARIMAX_MODEL_NAME,
     TEST_DAYS,
     XGBOOST_MODEL_NAME,
 )
+from src.utils.features import cast_categoricals, iterative_xgb_predict
 from src.utils.logger import get_logger
 from src.utils.registry import promote_to_production, resolve_production_version
 from src.utils.s3_helpers import get_s3_client, write_s3_json
@@ -82,41 +103,152 @@ def _promote(client: MlflowClient, model_name: str, version: int) -> None:
     promote_to_production(client, model_name, version)
 
 
-def _gate(client: MlflowClient, model_name: str) -> tuple[int | None, float | None]:
-    """Promote the newest version to Production iff its logged holdout MAE beats
-    the current Production version's. Returns (candidate_version, candidate_mae)
-    regardless of the promotion outcome, so the ensemble analysis can always use
-    the freshly trained models.
+def _load_gold_sarima() -> pd.DataFrame | None:
+    try:
+        df = pd.read_parquet(GOLD_SARIMA_LOCAL_PATH)
+    except (FileNotFoundError, OSError) as e:
+        logger.warning(f"Gold SARIMA data unavailable: {e}")
+        return None
+    df.index = pd.to_datetime(df.index)
+    return df.asfreq("D")
+
+
+def seasonal_naive_from_origin(y: pd.Series, dates: pd.DatetimeIndex) -> np.ndarray:
+    """Seasonal-naive forecast of `dates` made from the day before the first one:
+    each day copies the same weekday from the latest week known at that origin
+    (last week for days 1-7, two weeks back for days 8-14, ...). Unlike y.shift(7),
+    it never reads actuals inside the window, so it faces the same multi-step task
+    as the models it is a floor for."""
+    origin = dates[0] - pd.Timedelta(days=1)
+    return np.array([
+        y.loc[d - pd.Timedelta(days=7 * math.ceil((d - origin).days / 7))] for d in dates
+    ])
+
+
+def promotion_decision(
+    candidate_mae: float, production_mae: float | None, naive_mae: float
+) -> tuple[bool, str]:
+    """Returns (promote, method). When Production was scored on the same window, the
+    better of the two servable models wins: naive isn't servable, so requiring the
+    candidate to beat it too would keep an even worse Production model. Only when
+    Production can't be scored does the naive floor decide, so a broken candidate
+    still can't ship."""
+    if production_mae is None:
+        return candidate_mae < naive_mae, "naive_floor"
+    return candidate_mae < production_mae, "head_to_head"
+
+
+def _score_sarimax(client: MlflowClient, version: int, dates: pd.DatetimeIndex) -> np.ndarray | None:
+    # Reuses the serving re-anchor so Production is scored exactly as it forecasts.
+    # Imported here so the evaluation module doesn't import prediction at load time.
+    from src.prediction.generate_forecast import _reanchor_sarimax
+
+    model = mlflow.statsmodels.load_model(f"models:/{SARIMAX_MODEL_NAME}/{version}")
+    if model.fittedvalues.index[-1] >= dates[0]:
+        logger.info(f"{SARIMAX_MODEL_NAME} v{version} trained into the window — not scorable")
+        return None
+    run_id = client.get_model_version(SARIMAX_MODEL_NAME, str(version)).run_id
+    scaler_path = mlflow.artifacts.download_artifacts(
+        run_id=run_id, artifact_path="sarimax_scaler.pkl", tracking_uri=MLFLOW_TRACKING_URI,
+    )
+    with open(scaler_path, "rb") as f:
+        scaler = pickle.load(f)
+    gold = _load_gold_sarima()
+    origin = dates[0] - pd.Timedelta(days=1)
+    model = _reanchor_sarimax(model, gold.loc[:origin], scaler)
+    exog = pd.DataFrame(
+        scaler.transform(gold.loc[dates, SARIMAX_EXOG_COLS]), index=dates, columns=SARIMAX_EXOG_COLS
+    )
+    return np.asarray(model.get_forecast(steps=len(dates), exog=exog).predicted_mean)
+
+
+def _score_xgboost(client: MlflowClient, version: int, dates: pd.DatetimeIndex) -> np.ndarray | None:
+    run_id = client.get_model_version(XGBOOST_MODEL_NAME, str(version)).run_id
+    trained_through = client.get_run(run_id).data.tags.get("data_version_date")
+    if trained_through is None or pd.Timestamp(trained_through) >= dates[0]:
+        logger.info(f"{XGBOOST_MODEL_NAME} v{version} trained into the window (or unknown) — not scorable")
+        return None
+    model = mlflow.xgboost.load_model(f"models:/{XGBOOST_MODEL_NAME}/{version}")
+    df_ml = pd.read_parquet(GOLD_ML_LOCAL_PATH)
+    df_ml.index = pd.to_datetime(df_ml.index)
+    df_ml = cast_categoricals(df_ml)
+    return iterative_xgb_predict(model, df_ml, df_ml.index.get_loc(dates[0]), len(dates))
+
+
+_PRODUCTION_SCORERS = {SARIMAX_MODEL_NAME: _score_sarimax, XGBOOST_MODEL_NAME: _score_xgboost}
+
+
+def _score_production(
+    client: MlflowClient, model_name: str, version: int, dates: pd.DatetimeIndex
+) -> np.ndarray | None:
+    """Production version's forecast of the candidate's holdout days, or None when
+    it can't be scored fairly (trained into the window) or at all (missing
+    artifact, feature set changed since it was trained, ...)."""
+    try:
+        pred = _PRODUCTION_SCORERS[model_name](client, version, dates)
+    except Exception as e:
+        logger.warning(f"Could not score {model_name} v{version} on the holdout window: {e}")
+        return None
+    if pred is not None and len(pred) != len(dates):
+        logger.warning(f"{model_name} v{version} returned {len(pred)} predictions for {len(dates)} days")
+        return None
+    return pred
+
+
+def _gate(client: MlflowClient, model_name: str) -> tuple[int | None, float | None, dict]:
+    """Promote the newest version if it beats Production head-to-head on its holdout
+    window (or, if Production can't be scored, seasonal-naive). Returns
+    (candidate_version, candidate_mae, record)
+    regardless of the outcome, so the ensemble analysis can always use the freshly
+    trained models; the record explains the decision.
     """
     new_ver, prod_ver = _latest_and_prod_versions(client, model_name)
     if new_ver is None:
         logger.info(f"{model_name} — no registered versions, skipping")
-        return None, None
+        return None, None, {}
 
     new_mae = _logged_metric(client, model_name, new_ver)
     logger.info(f"{model_name} v{new_ver} (candidate) — holdout MAE: {new_mae}")
+    record: dict = {"candidate_version": new_ver, "candidate_mae": new_mae, "production_version": prod_ver}
 
     if prod_ver is None:
         _promote(client, model_name, new_ver)
         logger.info(f"{model_name} v{new_ver} → Production (no prior champion)")
-    elif prod_ver == new_ver:
+        return new_ver, new_mae, {**record, "method": "first_promotion", "promoted": True}
+    if prod_ver == new_ver:
         logger.info(f"{model_name} v{new_ver} already in Production — skipping gate")
-    else:
-        old_mae = _logged_metric(client, model_name, prod_ver)
-        logger.info(f"{model_name} v{prod_ver} (Production) — holdout MAE: {old_mae}")
-        if new_mae is not None and old_mae is not None and new_mae < old_mae:
-            _promote(client, model_name, new_ver)
-            logger.info(
-                f"{model_name} v{new_ver} → Production "
-                f"(MAE {new_mae:.4f}M < {old_mae:.4f}M, improvement: {old_mae - new_mae:.4f}M)"
-            )
-        else:
-            logger.info(
-                f"{model_name} v{new_ver} NOT promoted "
-                f"(MAE {new_mae} >= {old_mae}) — keeping v{prod_ver} in Production"
-            )
+        return new_ver, new_mae, {**record, "method": "already_production", "promoted": False}
 
-    return new_ver, new_mae
+    holdout = _load_holdout(client, model_name, new_ver)
+    gold = _load_gold_sarima()
+    if holdout is None or gold is None or new_mae is None:
+        logger.warning(f"{model_name} v{new_ver} NOT promoted — no holdout or gold data to compare on")
+        return new_ver, new_mae, {**record, "method": "no_comparison", "promoted": False}
+
+    dates = pd.DatetimeIndex(pd.to_datetime(holdout["date"]))
+    y_true = holdout["y_true"].to_numpy()
+    y = gold["daily_ridership"] / 1_000_000
+    naive_mae = float(np.mean(np.abs(seasonal_naive_from_origin(y, dates) - y_true)))
+    prod_pred = _score_production(client, model_name, prod_ver, dates)
+    prod_mae = float(np.mean(np.abs(prod_pred - y_true))) if prod_pred is not None else None
+
+    promote, method = promotion_decision(new_mae, prod_mae, naive_mae)
+    window = [str(dates[0].date()), str(dates[-1].date())]
+    record.update({"method": method, "promoted": promote, "production_mae": prod_mae,
+                   "naive_mae": naive_mae, "window": window})
+    prod_txt = (f"Production v{prod_ver} {prod_mae:.4f}M" if prod_mae is not None
+                else f"Production v{prod_ver} not scorable")
+    summary = (f"{window[0]}..{window[1]}: candidate {new_mae:.4f}M, {prod_txt}, "
+               f"seasonal-naive {naive_mae:.4f}M")
+    if promote:
+        _promote(client, model_name, new_ver)
+        logger.info(f"{model_name} v{new_ver} → Production ({method}; {summary})")
+    else:
+        logger.info(f"{model_name} v{new_ver} NOT promoted ({method}; {summary}) — keeping v{prod_ver}")
+    served_mae = new_mae if promote else prod_mae
+    if served_mae is not None and served_mae >= naive_mae:
+        logger.warning(f"{model_name}: the served version does not beat seasonal-naive ({summary})")
+    return new_ver, new_mae, record
 
 
 def evaluate_baselines() -> dict:
@@ -181,9 +313,9 @@ def run() -> str:
     client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
 
     logger.info("Gating SARIMAX")
-    sar_ver, sar_mae = _gate(client, SARIMAX_MODEL_NAME)
+    sar_ver, sar_mae, sar_gate = _gate(client, SARIMAX_MODEL_NAME)
     logger.info("Gating XGBoost")
-    xgb_ver, xgb_mae = _gate(client, XGBOOST_MODEL_NAME)
+    xgb_ver, xgb_mae, xgb_gate = _gate(client, XGBOOST_MODEL_NAME)
 
     if sar_mae is None or xgb_mae is None:
         logger.warning("Missing logged holdout MAE for a family — skipping ensemble analysis")
@@ -264,6 +396,7 @@ def run() -> str:
         "xgboost_mae": xgb_mae,
         "baseline_versions": baseline_versions,
         "production_versions": production_versions,
+        "gate": {"sarimax": sar_gate, "xgboost": xgb_gate},
         "champion_model": winner,
         "config_sarimax_weight": ENSEMBLE_SARIMAX_WEIGHT,
         "recommended_sarimax_weight": best_w,

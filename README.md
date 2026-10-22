@@ -52,7 +52,7 @@ flowchart LR
     monitor -.->|retrain| train
 ```
 
-Bronze holds raw API responses, silver the station-level ridership joined with weather, gold the city-wide daily totals and model features; silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
+Bronze holds raw API responses, silver the station-level ridership joined with weather, gold the city-wide daily totals and model features. Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
 
 | Workflow | Trigger | Does |
 |----------|---------|------|
@@ -60,7 +60,7 @@ Bronze holds raw API responses, silver the station-level ridership joined with w
 | Training | Monthly (first week of the month), or dispatched by monitoring | Train, gate, register, run walk-forward backtest, sync MLflow to S3, dispatch prediction |
 | Prediction | Dispatched by ingestion or training | Pull the pinned gold version, write the 14-day ensemble forecast to S3 |
 | Monitoring | Daily 08:00 UTC | Score past forecasts against actuals (MAE, band coverage), compute PSI, dispatch training on degradation (7-day cooldown) |
-| CI & Docker | Push / PR to main | Lint, unit + integration tests; on main, build and push images (pipelines run the `:stable` tag) |
+| CI & Docker | Push / PR to main | Lint, unit + integration tests. On main, build and push images (pipelines run the `:stable` tag) |
 
 ## Models
 
@@ -76,7 +76,7 @@ An earlier version compared each model's MAE from its own 30-day window. A June 
 
 ## Evaluation
 
-**Method.** The backtest replays production. Both models are trained on data up to 90 days before the end. Then every 7 days, a 14-day forecast is made using only the data available that day: 11 forecasts, 154 days scored. SARIMAX is updated with new actuals without refitting, and XGBoost's lag features are filled from the latest actuals. A single long holdout would unfairly penalize XGBoost, whose recursive error compounds over horizons it never serves in production. The backtest uses observed weather throughout, while production uses forecast weather for days that haven't happened yet; weather is a minor predictor, so the effect is small.
+**Method.** The backtest replays production. Both models are trained on data up to 90 days before the end. Then every 7 days, a 14-day forecast is made using only the data available that day: 11 forecasts, 154 days scored. SARIMAX is updated with new actuals without refitting, and XGBoost's lag features are filled from the latest actuals. A single long holdout would unfairly penalize XGBoost, whose recursive error compounds over horizons it never serves in production. The backtest uses observed weather throughout, while production uses forecast weather for days that haven't happened yet. Weather is a minor predictor, so the effect is small.
 
 **Why 50/50.** Block-bootstrap 95% CIs on pairwise MAE differences (10,000 resamples of whole 14-day forecasts, so errors within a forecast stay together). The ensemble is fixed at 50/50 in advance, not tuned on this data:
 
@@ -86,7 +86,7 @@ An earlier version compared each model's MAE from its own 30-day window. A June 
 | Ensemble − XGBoost | +0.005 | [−0.014, +0.023] | tie |
 | Ensemble − SARIMAX | −0.020 | [−0.038, −0.001] | ensemble better (borderline) |
 
-XGBoost has the better point estimate, but SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight; the best weight found by grid search (0.10 SARIMAX) is only 0.006 MAE better than 50/50. The ensemble ties XGBoost and beats SARIMAX, so keeping both models costs no measurable accuracy. With only 11 forecasts that overlap by 7 days, these intervals are approximate and probably a little narrow, so the borderline result is weak evidence; a longer, multi-season backtest is the main next step.
+XGBoost has the better point estimate, but SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight. The best weight found by grid search (0.10 SARIMAX) is only 0.006 MAE better than 50/50. The ensemble ties XGBoost and beats SARIMAX, so keeping both models costs no measurable accuracy. With only 11 forecasts that overlap by 7 days, these intervals are approximate and probably a little narrow, so the borderline result is weak evidence. A longer, multi-season backtest is the main next step.
 
 **Prediction band.** The 90% band is conformal: its width comes from the ensemble's own backtest errors. Errors are pooled across all 14 days ahead and rescaled per day, so the band widens with lead time. Coverage holds on average across the 14 days rather than for each day, and it's approximate because errors from consecutive forecasts aren't fully independent. Live coverage is tracked daily.
 
@@ -114,7 +114,7 @@ The [live dashboard](https://nyc-transit-forecasting.streamlit.app/) is a single
 
 ```
 src/
-  ingestion/          MTA and weather fetchers; silver merge
+  ingestion/          MTA and weather fetchers, silver merge
   transformation/     gold layer: daily aggregation, features, data checks
   training/           SARIMAX and XGBoost trainers
   evaluation/         promotion gate, walk-forward backtest, PSI
@@ -160,12 +160,12 @@ To browse MLflow runs from CI, pull the store from S3 and run `mlflow ui --backe
 ## Limitations
 
 - **Short forward reach.** The MTA publishes weekly with a ~1-week lag (nearly two weeks by the next release), so the first part of each 14-day forecast covers days that have already happened but aren't published yet. Only the remainder is truly ahead of today.
-- **Low evaluation power.** The backtest is 11 forecasts over 90 days, one season. CIs are wide; a longer, multi-season window with per-forecast refits would tighten them and could justify an unequal ensemble weight.
+- **Low evaluation power.** The backtest is 11 forecasts over 90 days, one season. CIs are wide. A longer, multi-season window with per-forecast refits would tighten them and could justify an unequal ensemble weight.
 - **No shock awareness.** The models learn regular patterns and can't anticipate service disruptions, major events or structural breaks.
 - **Scope.** Daily, city-wide, one city. Station- or line-level forecasting is a different and much more data-hungry problem.
-- **Late source corrections.** Each run re-fetches the last 14 days, so partial or revised days heal within a week; a correction to older data would be missed.
-- **MLflow on SQLite.** The tracking store is a SQLite file synced to S3; a team deployment would use a shared tracking server backed by Postgres.
-- **Static AWS keys in CI.** Workflows use long-lived credentials; OIDC federation (short-lived, per-run) is the planned replacement.
+- **Late source corrections.** Each run re-fetches the last 14 days, so partial or revised days heal within a week. A correction to older data would be missed.
+- **MLflow on SQLite.** The tracking store is a SQLite file synced to S3. A team deployment would use a shared tracking server backed by Postgres.
+- **Static AWS keys in CI.** Workflows use long-lived credentials. OIDC federation (short-lived, per-run) is the planned replacement.
 
 ## Tech stack
 

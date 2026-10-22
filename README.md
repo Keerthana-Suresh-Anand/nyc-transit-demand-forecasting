@@ -10,17 +10,17 @@ Weather was the starting hypothesis. It's included as a predictor and tested dir
 
 ## Results
 
-14-day rolling-origin walk-forward backtest (11 weekly origins, 154 forecast points):
+Walk-forward backtest of Oct 22, 2026: 11 weekly 14-day forecasts, 154 days scored (Jul–Oct 2026). The dashboard shows the latest backtest, so its numbers change with each monthly retrain.
 
-| Model | MAE (M riders) | MAPE | MASE |
+| Model | MAE (M riders/day) | MAPE | MAE vs seasonal-naive |
 |-------|---------|------|------|
-| Persistence | 0.819 | 31.8% | 2.29 |
-| Seasonal-naive (m=7) | 0.357 | 13.5% | 1.00 |
-| SARIMAX | 0.260 | 10.3% | 0.73 |
-| XGBoost | 0.219 | 8.7% | 0.61 |
-| **Ensemble 50/50** | **0.216** | 8.9% | **0.60** |
+| Persistence | 0.730 | 27.7% | 3.07× |
+| Seasonal-naive (m=7) | 0.237 | 7.2% | 1.00× |
+| SARIMAX | 0.187 | 5.4% | 0.79× |
+| XGBoost | 0.162 | 4.6% | 0.68× |
+| **Ensemble 50/50 (served)** | **0.167** | **4.7%** | **0.70×** |
 
-The ensemble beats seasonal-naive (same weekday last week) by ~40%. Seasonal-naive is the benchmark that matters here; persistence is a weak baseline on a series this weekly-seasonal.
+The ensemble beats seasonal-naive (same weekday last week) by ~30%. XGBoost is the strongest single model; the ensemble ties it and beats SARIMAX (see [Evaluation](#evaluation)). All models under-forecast slightly (ensemble bias −0.08M/day) during a stretch of rising ridership. Seasonal-naive is the benchmark that matters; persistence is a weak baseline on a series this weekly-seasonal.
 
 ## How it works
 
@@ -82,11 +82,11 @@ Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipe
 
 | Comparison | ΔMAE | 95% CI | Verdict |
 |------------|------|--------|---------|
-| SARIMAX − XGBoost | +0.041 | [−0.005, +0.094] | tie |
-| Ensemble − XGBoost | −0.003 | [−0.025, +0.021] | tie |
-| Ensemble − SARIMAX | −0.044 | [−0.075, −0.016] | ensemble better |
+| SARIMAX − XGBoost | +0.025 | [−0.012, +0.060] | tie |
+| Ensemble − XGBoost | +0.005 | [−0.014, +0.023] | tie |
+| Ensemble − SARIMAX | −0.020 | [−0.038, −0.001] | ensemble better (borderline) |
 
-SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight; the best weight found by grid search (0.35 SARIMAX) is within 0.003 MAE of 50/50. The ensemble beats SARIMAX and ties XGBoost, so keeping both models costs no accuracy and helps against one of them. With only 11 forecasts that overlap by 7 days, these intervals are approximate and probably a little narrow; a longer, multi-season backtest is the main next step.
+XGBoost has the better point estimate, but SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an unequal weight; the best weight found by grid search (0.10 SARIMAX) is only 0.006 MAE better than 50/50. The ensemble ties XGBoost and beats SARIMAX, so keeping both models costs no measurable accuracy. With only 11 forecasts that overlap by 7 days, these intervals are approximate and probably a little narrow, so the borderline result is weak evidence; a longer, multi-season backtest is the main next step.
 
 **Prediction band.** The 90% band is conformal: its width comes from the ensemble's own backtest errors. Errors are pooled across all 14 days ahead and rescaled per day, so the band widens with lead time. Coverage holds on average across the 14 days rather than for each day, and it's approximate because errors from consecutive forecasts aren't fully independent. Live coverage is tracked daily.
 
@@ -94,6 +94,7 @@ SARIMAX and XGBoost are statistically tied, so there's no reliable basis for an 
 
 - **Retrain trigger:** each day, forecasts from the models currently in production are scored against actuals as they arrive. Once at least 14 days are scored, training is dispatched if their MAE exceeds 1.5× the backtest ensemble MAE (or the 30-day holdout MAE if no backtest exists). A 7-day cooldown caps retrains at one per week.
 - **Band coverage:** the same check reports how often actuals land inside the 90% band.
+- **Late-arriving data:** three past days were captured before the MTA finished publishing them (one at 28% of its true value) and stayed wrong, because each date was fetched only once. Each ingestion now re-fetches the last 14 days and replaces them, and gold is checked for drops that no holiday or weather explains. The three days were corrected and the models retrained.
 - **Data drift:** PSI on weather features (last 14 days vs the prior 90) is logged in the daily drift report but never triggers retraining. Weather drifts with the seasons, so it would fire false alarms every spring and fall.
 - **Pipeline health:** every run logs its status, duration and any error to S3, and the dashboard shows the latest run of each pipeline.
 - **Traceability:** every forecast records the model versions, MLflow run IDs, gold-data DVC hash and Docker image digest that produced it.

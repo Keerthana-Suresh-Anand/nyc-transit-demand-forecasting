@@ -31,6 +31,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          # main is protected (PRs + required checks). The DVC-pointer commit below is
+          # pushed with this repo-scoped deploy key, the ruleset's only bypass actor;
+          # the default GITHUB_TOKEN would be rejected.
+          ssh-key: ${{ secrets.DVC_DEPLOY_KEY }}
 
       - name: Install DVC
         run: pip install "dvc[s3]>=3.0"

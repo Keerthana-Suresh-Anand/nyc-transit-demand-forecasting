@@ -35,29 +35,22 @@ The MTA publishes ridership weekly (Wednesdays) with a ~1-week lag. Each week th
 Monthly (or on a drift trigger), it **retrains** both models and promotes each one only if it beats its current production version. Daily, it **monitors** live forecast error and triggers a retrain if accuracy degrades.
 
 ```mermaid
-flowchart TD
-    apis["MTA ridership API<br/>Visual Crossing weather API"]
-    apis -->|weekly ingestion| bronze["S3 bronze<br/>raw API responses"]
-    bronze --> silver["S3 silver<br/>station-level ridership + weather"]
-    silver --> gold["S3 gold<br/>city-wide daily totals + features"]
-
-    gold -->|monthly or on trigger| train["Training<br/>holdout gate + walk-forward backtest"]
-    train --> registry["MLflow registry<br/>SARIMAX + XGBoost, both in production"]
-
-    registry --> predict["Prediction<br/>50/50 ensemble + conformal band"]
-    gold --> predict
-    bronze -->|weather forecast| predict
-    train -->|backtest residuals| predict
-
-    predict --> forecasts["S3 forecasts<br/>with model versions + data hash"]
-    forecasts --> monitor["Monitoring, daily<br/>live MAE, band coverage, PSI"]
-    gold -->|actuals| monitor
-    monitor -->|"MAE > 1.5× baseline"| train
-
-    forecasts --> dash["Streamlit dashboard"]
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 30}}}%%
+flowchart LR
+    apis["MTA +<br/>weather APIs"] -->|weekly| data["S3 data<br/>bronze → silver → gold"]
+    data -->|monthly| train["Training<br/>gate + backtest"]
+    train --> registry["MLflow<br/>registry"]
+    registry --> predict["Prediction<br/>ensemble + band"]
+    data --> predict
+    train -.->|backtest errors| predict
+    predict --> fc["S3<br/>forecasts"]
+    fc --> dash["Streamlit<br/>dashboard"]
+    fc --> monitor["Monitoring<br/>daily"]
+    data -.->|actuals| monitor
+    monitor -.->|retrain| train
 ```
 
-Silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
+Bronze holds raw API responses, silver the station-level ridership joined with weather, gold the city-wide daily totals and model features; silver and gold are versioned with DVC. All compute runs on GitHub Actions (pipelines, inside the published Docker image) and Streamlit Community Cloud (dashboard). AWS is storage only.
 
 | Workflow | Trigger | Does |
 |----------|---------|------|

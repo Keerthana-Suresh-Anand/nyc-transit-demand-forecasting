@@ -35,17 +35,17 @@ The MTA publishes ridership weekly (Wednesdays) with a ~1-week lag. Each week th
 Monthly (or on a drift trigger), it **retrains** both models and promotes each one only if it beats its current production version. Daily, it **monitors** live forecast error and triggers a retrain if accuracy degrades.
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 30}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 30, "padding": 12}}}%%
 flowchart LR
-    apis["MTA +<br/>weather APIs"] -->|weekly| data["S3 data<br/>bronze → silver → gold"]
-    data -->|monthly| train["Training<br/>gate + backtest"]
-    train --> registry["MLflow<br/>registry"]
-    registry --> predict["Prediction<br/>ensemble + band"]
+    apis["MTA + weather APIs"] -->|weekly| data["S3 bronze, silver, gold"]
+    data -->|monthly| train["Training"]
+    train --> registry["MLflow registry"]
+    registry --> predict["Prediction"]
     data --> predict
     train -.->|backtest errors| predict
-    predict --> fc["S3<br/>forecasts"]
-    fc --> dash["Streamlit<br/>dashboard"]
-    fc --> monitor["Monitoring<br/>daily"]
+    predict --> fc["S3 forecasts"]
+    fc --> dash["Dashboard"]
+    fc -->|daily| monitor["Monitoring"]
     data -.->|actuals| monitor
     monitor -.->|retrain| train
 ```

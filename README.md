@@ -17,15 +17,15 @@ Walk-forward backtest of Oct 22, 2026: 11 weekly 14-day forecasts, 154 days scor
 
 | Model | MAE (M riders/day) | MAPE | MAE vs seasonal-naive |
 |-------|---------|------|------|
-| Persistence | 0.730 | 27.7% | 3.07× |
-| Seasonal-naive (m=7) | 0.237 | 7.2% | 1.00× |
+| Persistence (last known day, held flat) | 0.730 | 27.7% | 3.07× |
+| Seasonal-naive (same weekday last week) | 0.237 | 7.2% | 1.00× |
 | SARIMAX | 0.187 | 5.4% | 0.79× |
 | XGBoost | 0.162 | 4.6% | 0.68× |
 | **Ensemble 50/50 (served)** | **0.167** | **4.7%** | **0.70×** |
 
-The ensemble's error is about 30% lower than seasonal-naive, a baseline that copies the same weekday from an earlier week. XGBoost alone does about as well as the ensemble, and SARIMAX does worse. Over this period every model came in a little low, by about 80,000 riders a day, while ridership was rising.
+The ensemble beats seasonal-naive (same weekday last week) by ~30% in MAE. XGBoost alone scores about the same as the ensemble. Both models are kept because the gap between them isn't statistically significant and the better model has changed between backtests, so combining them is the safer choice.
 
-Persistence (repeat yesterday's value) is there for reference. Weekends carry about half the weekday ridership, so it's an easy baseline to beat.
+All models under-forecast slightly. The ensemble comes in about 78,000 riders a day low on average, mostly in September and October, when ridership climbed from its August low.
 
 ## How it works
 
@@ -70,7 +70,9 @@ Bronze holds raw API responses, silver the station-level ridership joined with w
 
 **Ensemble:** 50% SARIMAX + 50% XGBoost (see [Evaluation](#evaluation) for why).
 
-**Promotion:** each model is scored on its most recent 30 days, then refit on all data before registration. A new version replaces the production one only if its holdout MAE is lower. The two MAEs come from different 30-day windows, so this is a sanity gate, not a head-to-head test. That's acceptable because both models always stay in production (the ensemble needs both) and the next monthly retrain corrects a wrong call.
+**Promotion:** each new model is tested on the most recent 30 days, then refit on all data before registration. The production model is scored on those same 30 days, and the one with the lower MAE serves. If the production model already trained on part of that window, the new model has to beat seasonal-naive instead. Both models always stay in production because the ensemble needs both.
+
+An earlier version compared each model's MAE from its own 30-day window. A June model scored on an easy month then beat every later model scored on a harder one, and production went four months without an update. Comparing on the same days fixed it.
 
 ## Evaluation
 

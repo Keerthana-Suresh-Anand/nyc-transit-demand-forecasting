@@ -23,7 +23,9 @@ Walk-forward backtest of Oct 22, 2026: 11 weekly 14-day forecasts, 154 days scor
 | XGBoost | 0.162 | 4.6% | 0.68× |
 | **Ensemble 50/50 (served)** | **0.167** | **4.7%** | **0.70×** |
 
-The ensemble beats seasonal-naive (same weekday last week) by ~30%. XGBoost is the strongest single model; the ensemble ties it and beats SARIMAX (see [Evaluation](#evaluation)). All models under-forecast slightly (ensemble bias −0.08M/day) during a stretch of rising ridership. Seasonal-naive is the benchmark that matters; persistence is a weak baseline on a series this weekly-seasonal.
+The ensemble's error is about 30% lower than seasonal-naive, which simply repeats last week's value for each weekday. XGBoost alone does about as well as the ensemble, and SARIMAX does worse. Over this period every model came in a little low, by about 80,000 riders a day, while ridership was rising.
+
+Persistence (repeat yesterday's value) is there for reference. Weekends carry about half the weekday ridership, so it's an easy baseline to beat.
 
 ## How it works
 

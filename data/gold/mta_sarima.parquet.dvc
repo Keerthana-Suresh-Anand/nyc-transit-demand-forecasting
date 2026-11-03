@@ -1,5 +1,5 @@
 outs:
-- md5: d543a64ad07e81a723a47854aa80c053
-  size: 41942
+- md5: 649fa4c1642278cbf09e12b8f478b2d1
+  size: 42096
   hash: md5
   path: mta_sarima.parquet

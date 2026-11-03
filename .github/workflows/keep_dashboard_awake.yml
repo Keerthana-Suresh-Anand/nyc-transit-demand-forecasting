@@ -1,0 +1,66 @@
+name: Keep dashboard awake
+
+# Streamlit Community Cloud puts apps to sleep after a stretch with no visitors, and
+# the next visitor (e.g. a recruiter) lands on a "wake this app up" screen. Opening
+# the app in a real browser every few hours keeps it awake. A plain HTTP request
+# doesn't count as a visit, hence the headless browser. The run fails if the app
+# never renders, so this also doubles as a basic uptime check.
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # every 6 hours, off the hour
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-dashboard-awake
+  cancel-in-progress: true
+
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          pip install "playwright==1.48.0"
+          python -m playwright install --with-deps chromium
+
+      - name: Open the dashboard
+        env:
+          DASHBOARD_URL: https://nyc-transit-forecasting.streamlit.app/
+          # Text that only appears once the app itself has rendered (its page title).
+          READY_TEXT: NYC Subway Ridership Forecast
+        run: |
+          python - <<'PY'
+          import os, re, sys, time
+          from playwright.sync_api import sync_playwright
+
+          url, ready = os.environ["DASHBOARD_URL"], os.environ["READY_TEXT"]
+          with sync_playwright() as p:
+              page = p.chromium.launch().new_page()
+              page.goto(url, wait_until="domcontentloaded", timeout=120_000)
+
+              deadline = time.time() + 240
+              woke = False
+              while time.time() < deadline:
+                  wake = page.get_by_role("button", name=re.compile("get this app back up", re.I))
+                  if not woke and wake.count():
+                      wake.first.click()
+                      woke = True
+                      print("App was asleep, clicked the wake-up button")
+                  # Streamlit Cloud renders the app inside an iframe, so check every frame.
+                  if any(f.get_by_text(ready).count() for f in page.frames):
+                      print(f"Dashboard rendered ({'after waking' if woke else 'was awake'})")
+                      page.wait_for_timeout(30_000)  # stay a moment so it registers as a visit
+                      sys.exit(0)
+                  page.wait_for_timeout(5_000)
+
+              print("Dashboard did not render within 4 minutes", file=sys.stderr)
+              sys.exit(1)
+          PY

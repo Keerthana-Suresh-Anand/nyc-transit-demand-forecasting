@@ -28,15 +28,21 @@ def get_s3_client():
 
 
 def read_watermark(s3_client, key: str) -> date | None:
-    """Read a date watermark from S3. Returns None if not found."""
+    """Read a date watermark from S3. Returns None only if the key doesn't exist.
+
+    None means "first run, fetch all history", so every other failure raises: an
+    auth or network error (seen during the 2026-10 account suspension) or a corrupt
+    watermark would otherwise silently trigger a full re-fetch back to the start date.
+    """
     try:
         obj = s3_client.get_object(Bucket=BUCKET, Key=key)
-        return datetime.strptime(obj["Body"].read().decode().strip(), "%Y-%m-%d").date()
     except s3_client.exceptions.NoSuchKey:
         return None
-    except Exception as e:
-        logger.warning(f"Could not read watermark {key}: {e}")
-        return None
+    raw = obj["Body"].read().decode().strip()
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError as e:
+        raise ValueError(f"Watermark {key} is corrupt ({raw!r}) — fix or delete it before re-running") from e
 
 
 def write_watermark(s3_client, key: str, value: date) -> None:

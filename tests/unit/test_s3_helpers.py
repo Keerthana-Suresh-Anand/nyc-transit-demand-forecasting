@@ -1,9 +1,11 @@
 """Tests for S3 helper utilities."""
 from datetime import date
+from unittest.mock import patch
 
 import boto3
 import pandas as pd
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 import src.utils.s3_helpers as s3_helpers
@@ -56,9 +58,21 @@ class TestReadWatermark:
         s3.put_object(Bucket=BUCKET, Key="wm.txt", Body=b"2025-06-15")
         assert read_watermark(s3, "wm.txt") == date(2025, 6, 15)
 
-    def test_returns_none_for_malformed_content(self, s3):
+    def test_raises_for_malformed_content(self, s3):
+        # A corrupt watermark must not read as "first run" and re-fetch all history
         s3.put_object(Bucket=BUCKET, Key="bad.txt", Body=b"not-a-date")
-        assert read_watermark(s3, "bad.txt") is None
+        with pytest.raises(ValueError, match="corrupt"):
+            read_watermark(s3, "bad.txt")
+
+    def test_raises_on_access_errors_instead_of_returning_none(self):
+        # Regression: an InvalidAccessKeyId during the 2026-10 account suspension was
+        # swallowed as "no watermark", and ingestion started fetching from 2022-01-01.
+        bad_creds = boto3.client("s3", region_name="us-east-1",
+                                 aws_access_key_id="x", aws_secret_access_key="y")
+        error = ClientError({"Error": {"Code": "InvalidAccessKeyId", "Message": "no such key id"}},
+                            "GetObject")
+        with patch.object(bad_creds, "get_object", side_effect=error), pytest.raises(ClientError):
+            read_watermark(bad_creds, "wm.txt")
 
 
 class TestWriteWatermark:

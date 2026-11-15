@@ -90,3 +90,24 @@ jobs:
               ref: 'main'
             });
             core.info('Retrain triggered due to drift detection.');
+
+      # Last on purpose: failing here must not skip the retrain trigger above. A
+      # failed run is the alert — GitHub emails the repo owner. Reports written by
+      # an image without the freshness fields are skipped, not failed.
+      - name: Data freshness check
+        run: |
+          KEY="monitoring/reports/drift_report_$(date -u +%F).json"
+          aws s3 cp "s3://$AWS_BUCKET_NAME/$KEY" report.json
+          STALE=$(jq -r '.data_stale // "unknown"' report.json)
+          LAST=$(jq -r '.last_actual_date // "?"' report.json)
+          AGE=$(jq -r '.data_age_days // "?"' report.json)
+          LIMIT=$(jq -r '.data_stale_after_days // "?"' report.json)
+          if [ "$STALE" = "true" ]; then
+            echo "::error title=Stale data::Newest actual is $LAST ($AGE days old, limit $LIMIT). A weekly MTA publish was missed — check the ingestion runs and the MTA dataset."
+            exit 1
+          fi
+          echo "Data freshness: newest actual $LAST ($AGE days old, limit $LIMIT) — stale=$STALE"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}

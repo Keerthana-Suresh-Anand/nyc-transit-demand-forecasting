@@ -9,10 +9,12 @@ from src.monitoring.monitor_performance import (
     _compute_forecast_metrics,
     _compute_psi_scores,
     _serving_versions,
+    data_freshness,
     load_baseline_mae,
     run,
 )
 from src.utils.config import (
+    DATA_STALE_AFTER_DAYS,
     PSI_CRITICAL_THRESHOLD,
     PSI_MODERATE_THRESHOLD,
     RETRAIN_MIN_SCORED,
@@ -257,6 +259,41 @@ class TestComputePsiScores:
         result = _compute_psi_scores(gold)
         for psi in result.values():
             assert psi < PSI_MODERATE_THRESHOLD
+
+
+class TestDataFreshness:
+    """Staleness is the age of the newest actual. The MTA's weekly publish with a
+    ~7-day lag keeps it at 7-13 days normally; past the limit, a week was missed."""
+
+    def _gold_ending(self, last: str) -> pd.DataFrame:
+        return pd.DataFrame({"daily_ridership": [1.0] * 3},
+                            index=pd.date_range(end=last, periods=3, freq="D"))
+
+    def test_fresh_within_normal_publish_lag(self):
+        f = data_freshness(self._gold_ending("2026-11-05"), date(2026, 11, 18))
+        assert f == {
+            "last_actual_date": "2026-11-05",
+            "data_age_days": 13,
+            "data_stale": False,
+            "data_stale_after_days": DATA_STALE_AFTER_DAYS,
+        }
+
+    def test_limit_itself_is_not_stale(self):
+        f = data_freshness(self._gold_ending("2026-11-01"), date(2026, 11, 1 + DATA_STALE_AFTER_DAYS))
+        assert f["data_stale"] is False
+
+    def test_stale_after_missed_week(self):
+        f = data_freshness(self._gold_ending("2026-10-29"), date(2026, 11, 15))
+        assert f["data_age_days"] == 17
+        assert f["data_stale"] is True
+
+    def test_run_records_freshness_in_report(self, monkeypatch):
+        monkeypatch.setattr("src.monitoring.monitor_performance.get_s3_client", MagicMock())
+        with patch("src.monitoring.monitor_performance._load_gold", return_value=_make_gold(120)),              patch("src.monitoring.monitor_performance._load_past_forecasts", return_value=None),              patch("src.monitoring.monitor_performance._compute_psi_scores", return_value={}),              patch("src.monitoring.monitor_performance.write_s3_json"):
+            result = run()
+        # _make_gold ends in 2025, so it is stale relative to any real "today".
+        assert result["last_actual_date"] == "2025-04-30"
+        assert result["data_stale"] is True
 
 
 class TestMonitorRun:

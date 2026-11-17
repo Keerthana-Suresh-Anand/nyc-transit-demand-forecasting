@@ -9,9 +9,13 @@ actuals (`.append`, params fixed) and XGBoost forecasts 14 days iteratively,
 seeding lags from actuals known at that origin. This removes the unfair 60-day
 compounding that a single long holdout imposes on XGBoost.
 
-Read-only w.r.t. MLflow and S3 — an analysis/reproducibility tool, run on demand,
-not part of the scheduled pipelines. The statistical core (`block_bootstrap_mae_diff`,
-`summarize`) is pure and unit-tested; `run()` does the heavy model fitting.
+Runs at the end of every training pipeline (best-effort — a failure never undoes
+the registration that already succeeded), which writes the result to S3 as the
+dashboard's headline accuracy, the monitoring baseline and the conformal band's
+calibration. Can also be run on demand; `run()` itself only reads S3 (the pinned
+SARIMAX order) and never touches MLflow. The statistical core
+(`block_bootstrap_mae_diff`, `summarize`) is pure and unit-tested; `run()` does the
+heavy model fitting.
 """
 import math
 import warnings

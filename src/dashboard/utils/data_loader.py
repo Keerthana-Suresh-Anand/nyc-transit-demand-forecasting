@@ -26,6 +26,7 @@ from src.utils.config import (
     S3_WALKFORWARD_KEY,
     S3_WEATHER_FORECAST_PREFIX,
 )
+from src.utils.forecast_rows import ORIGIN_COL, drop_reforecasts
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,7 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
 
         merged["forecast_run_date"] = run_date_str
         merged["horizon"] = (merged["date"] - forecast_origin).dt.days + 1
+        merged[ORIGIN_COL] = forecast_origin
         merged["error_M"] = merged["ensemble_forecast_M"] - merged["actual_M"]
         merged["abs_pct_error"] = merged["error_M"].abs() / merged["actual_M"] * 100
         for col in ("ci_lower", "ci_upper"):  # older parquets may predate CI columns
@@ -224,15 +226,17 @@ def load_past_forecasts_vs_actuals() -> pd.DataFrame | None:
                 [
                     "forecast_run_date", "date", "ensemble_forecast_M",
                     "sarimax_forecast_M", "actual_M", "error_M", "abs_pct_error",
-                    "ci_lower", "ci_upper", "horizon",
+                    "ci_lower", "ci_upper", "horizon", ORIGIN_COL,
                 ]
+                + [c for c in ("sarimax_version", "xgboost_version") if c in merged.columns]
             ]
         )
 
     if not chunks:
         return None
+    # Same-origin re-forecasts would double-count in the live accuracy views.
     df = (
-        pd.concat(chunks, ignore_index=True)
+        drop_reforecasts(pd.concat(chunks, ignore_index=True))
         .sort_values("date", ascending=False)
         .reset_index(drop=True)
     )

@@ -6,8 +6,10 @@ Post-hoc performance monitor.
 3. Computes rolling MAE / MAPE over all of them, plus a trigger MAE over only the
    rows produced by the model versions currently serving.
 4. Runs PSI on the last 14 days of weather features vs 90-day reference window.
-5. Writes a structured JSON report to S3.
-6. If the trigger MAE exceeds the retrain threshold (with enough scored rows, and
+5. Records data freshness (age of the newest actual in gold) for the workflow's
+   freshness alert.
+6. Writes a structured JSON report to S3.
+7. If the trigger MAE exceeds the retrain threshold (with enough scored rows, and
    not within the cooldown), writes retrain_flag.json. PSI is informational only
    and never triggers a retrain.
 """
@@ -20,6 +22,7 @@ from src.evaluation.drift_detector import compute_psi
 from src.utils.config import (
     CI_COVERAGE,
     CONFORMAL_METHOD,
+    DATA_STALE_AFTER_DAYS,
     GOLD_SARIMA_LOCAL_PATH,
     MAE_RETRAIN_MULTIPLIER,
     PSI_CRITICAL_THRESHOLD,
@@ -247,6 +250,21 @@ def _compute_psi_scores(gold: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def data_freshness(gold: pd.DataFrame, today: date) -> dict:
+    """Age of the newest actual in gold. Staleness is judged on the data, not on
+    whether the last ingestion fetched anything, so it catches every cause of a
+    missed week (late MTA publish, outage, failed run) and stays quiet when a
+    catch-up run has already recovered."""
+    last_actual = gold.index.max().date()
+    age_days = (today - last_actual).days
+    return {
+        "last_actual_date": str(last_actual),
+        "data_age_days": age_days,
+        "data_stale": age_days > DATA_STALE_AFTER_DAYS,
+        "data_stale_after_days": DATA_STALE_AFTER_DAYS,
+    }
+
+
 def run(training_mae: float | None = None, baseline_source: str | None = None) -> dict:
     logger.info("Starting performance monitoring")
     s3 = get_s3_client()
@@ -256,6 +274,13 @@ def run(training_mae: float | None = None, baseline_source: str | None = None) -
     if gold is None:
         logger.error("Could not load gold data — aborting monitoring")
         return {"status": "error", "reason": "no_gold_data"}
+
+    freshness = data_freshness(gold, today)
+    if freshness["data_stale"]:
+        logger.warning(
+            f"Data is stale: newest actual {freshness['last_actual_date']} is "
+            f"{freshness['data_age_days']} days old (limit {DATA_STALE_AFTER_DAYS})"
+        )
 
     # ── Forecast accuracy ──────────────────────────────────────────────────
     serving = _serving_versions(s3)
@@ -329,6 +354,7 @@ def run(training_mae: float | None = None, baseline_source: str | None = None) -
         "serving_versions": serving,
         "trigger_min_n": RETRAIN_MIN_SCORED,
         **fc_metrics,
+        **freshness,
     }
     if training_mae is not None:
         report["training_mae_M"] = training_mae

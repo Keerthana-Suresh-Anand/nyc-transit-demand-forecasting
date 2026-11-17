@@ -143,6 +143,12 @@ RETRAIN_COOLDOWN_DAYS = 7
 RETRAIN_MIN_SCORED = 14
 S3_RETRAIN_HISTORY_KEY = "monitoring/retrain_history.json"
 
+# Data freshness alert. The MTA publishes weekly with a ~7-day lag, so the newest
+# actual is normally 7-13 days old. Older than this means a weekly publish was
+# missed (late MTA release, outage, failed ingestion); the monitoring workflow then
+# fails its freshness step so GitHub emails the repo owner.
+DATA_STALE_AFTER_DAYS = 14
+
 # SARIMAX order persistence. auto_arima re-searched every training cycle makes the
 # production model architecture (and its coefficient panel) non-comparable month
 # to month. The discovered order is cached in S3 and reused until it is older than

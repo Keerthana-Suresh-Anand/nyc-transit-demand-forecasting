@@ -28,6 +28,7 @@ env:
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       actions: write

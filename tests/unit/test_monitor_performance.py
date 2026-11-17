@@ -8,6 +8,7 @@ import pytest
 from src.monitoring.monitor_performance import (
     _compute_forecast_metrics,
     _compute_psi_scores,
+    _load_past_forecasts,
     _serving_versions,
     load_baseline_mae,
     run,
@@ -336,6 +337,58 @@ def _fc_with_versions(gold, n_rows, sarimax_v, xgboost_v, error=0.5):
         "sarimax_version": sarimax_v,
         "xgboost_version": xgboost_v,
     })
+
+
+class TestLoadPastForecasts:
+    """Re-forecasts (same origin + same models) count once; forecasts of a date from
+    different origins or different model versions are distinct and all kept."""
+
+    def _file(self, start: str, days: int = 7, versions=(25, 25), value: float = 4.0):
+        df = pd.DataFrame({
+            "date": pd.date_range(start, periods=days, freq="D"),
+            "ensemble_forecast_M": [value] * days,
+        })
+        if versions is not None:
+            df["sarimax_version"], df["xgboost_version"] = versions
+        return df
+
+    def _load(self, files: dict) -> pd.DataFrame:
+        with patch("src.monitoring.monitor_performance.list_s3_files", return_value=list(files)),              patch("src.monitoring.monitor_performance.read_s3_parquet",
+                   side_effect=lambda _s3, key: files[key].copy()):
+            return _load_past_forecasts(MagicMock())
+
+    def test_same_origin_same_models_counted_once(self):
+        # 2026-11-05 and 2026-11-12: both from the 2026-10-29 origin, both v25.
+        fc = self._load({
+            "fc/forecast_2026-11-05.parquet": self._file("2026-10-30"),
+            "fc/forecast_2026-11-12.parquet": self._file("2026-10-30", value=4.1),
+        })
+        assert len(fc) == 7
+        assert fc["date"].is_unique
+        assert (fc["ensemble_forecast_M"] == 4.1).all()  # newest file wins
+        assert "_origin" not in fc.columns
+
+    def test_different_origins_kept(self):
+        fc = self._load({
+            "fc/forecast_2026-10-29.parquet": self._file("2026-10-23"),
+            "fc/forecast_2026-11-05.parquet": self._file("2026-10-30"),
+            "fc/forecast_2026-11-06.parquet": self._file("2026-10-27"),  # overlaps both
+        })
+        assert len(fc) == 21
+
+    def test_same_origin_different_models_kept(self):
+        fc = self._load({
+            "fc/forecast_2026-11-05.parquet": self._file("2026-10-30", versions=(24, 24)),
+            "fc/forecast_2026-11-06.parquet": self._file("2026-10-30", versions=(25, 25)),
+        })
+        assert len(fc) == 14
+
+    def test_legacy_files_without_versions_deduplicated(self):
+        fc = self._load({
+            "fc/forecast_2026-01-01.parquet": self._file("2025-12-20", versions=None),
+            "fc/forecast_2026-01-02.parquet": self._file("2025-12-20", versions=None),
+        })
+        assert len(fc) == 7
 
 
 class TestTriggerMetric:

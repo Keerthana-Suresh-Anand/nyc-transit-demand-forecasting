@@ -35,6 +35,7 @@ from src.utils.config import (
     S3_TRAINING_BASELINE_KEY,
     S3_WALKFORWARD_KEY,
 )
+from src.utils.forecast_rows import ORIGIN_COL, drop_reforecasts
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import (
     delete_s3_key,
@@ -111,11 +112,15 @@ def _load_past_forecasts(s3) -> pd.DataFrame | None:
         try:
             df_fc = read_s3_parquet(s3, key)
             df_fc["date"] = pd.to_datetime(df_fc["date"]).dt.date
+            # A file's first forecast date identifies its origin (last actual + 1).
+            df_fc[ORIGIN_COL] = df_fc["date"].min()
             rows.append(df_fc[df_fc["date"] < today])
         except Exception as e:
             logger.warning(f"Could not load forecast file {key}: {e}")
 
-    return pd.concat(rows, ignore_index=True) if rows else None
+    if not rows:
+        return None
+    return drop_reforecasts(pd.concat(rows, ignore_index=True))
 
 
 def _as_version(value) -> int | None:

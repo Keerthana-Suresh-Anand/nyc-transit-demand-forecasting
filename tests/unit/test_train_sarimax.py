@@ -3,6 +3,7 @@ import inspect
 from datetime import date, timedelta
 from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
@@ -30,13 +31,16 @@ class TestResolveOrder:
     to prevent — and nothing else in the system would report it.
     """
 
-    def _patch(self, monkeypatch, cached, search_result=((2, 1, 2), (1, 0, 1, 7))):
-        """Stub the cache read/write and the (expensive) auto_arima search."""
+    def _patch(self, monkeypatch, cached, search_result=((2, 1, 2), (1, 0, 1, 7)), winner=0):
+        """Stub the cache read/write, the (expensive) auto_arima search, and the
+        validation run (``winner`` = index of the candidate it picks)."""
         saved = {}
         monkeypatch.setattr(ts, "_load_cached_order", lambda s3: cached)
         monkeypatch.setattr(ts, "_save_cached_order",
-                            lambda s3, o, so: saved.update(order=o, seasonal=so))
+                            lambda s3, o, so, evidence=None: saved.update(order=o, seasonal=so))
         monkeypatch.setattr(ts, "find_best_params", lambda y, x: search_result)
+        monkeypatch.setattr(ts, "select_order_by_validation",
+                            lambda y, x, cands: (cands[winner], {}))
         return saved
 
     def test_fresh_cache_is_reused_without_searching(self, monkeypatch):
@@ -58,9 +62,16 @@ class TestResolveOrder:
         stale = date.today() - timedelta(days=SARIMAX_RESEARCH_DAYS + 1)
         saved = self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), stale))
         order, _, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
-        assert source == "auto_arima_stepwise"
-        assert order == (2, 1, 2)          # the freshly searched order, not the cached one
+        assert source == "validated"
+        assert order == (2, 1, 2)          # the proposal won validation here
         assert saved["order"] == (2, 1, 2)  # and it is re-pinned
+
+    def test_expiring_order_kept_when_it_wins_validation(self, monkeypatch):
+        stale = date.today() - timedelta(days=SARIMAX_RESEARCH_DAYS + 1)
+        saved = self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), stale), winner=1)
+        order, seasonal, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
+        assert (order, seasonal, source) == ((1, 0, 1), (2, 1, 0, 7), "validated")
+        assert saved["order"] == (1, 0, 1)  # re-pinned with a fresh date
 
     def test_boundary_day_still_counts_as_fresh(self, monkeypatch):
         """Exactly SARIMAX_RESEARCH_DAYS - 1 old is still inside the window."""
@@ -74,7 +85,20 @@ class TestResolveOrder:
         edge = date.today() - timedelta(days=SARIMAX_RESEARCH_DAYS)
         self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), edge))
         _, _, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
-        assert source == "auto_arima_stepwise"
+        assert source == "validated"
+
+
+class TestSelectOrderByValidation:
+    def test_picks_the_order_with_lower_out_of_sample_error(self):
+        rng = np.random.default_rng(0)
+        idx = pd.date_range("2025-01-01", periods=280, freq="D")
+        weekly = np.array([4.0, 4.2, 4.2, 4.2, 3.9, 2.7, 2.1])
+        y = pd.Series(weekly[idx.dayofweek] + rng.normal(0, 0.05, len(idx)), index=idx)
+        exog = _make_exog(len(idx)).set_axis(idx)
+        good, bad = ((1, 0, 0), (1, 1, 0, 7)), ((0, 0, 0), (0, 0, 0, 7))
+        best, scores = ts.select_order_by_validation(y, exog, [bad, good])
+        assert best == good
+        assert set(scores) == {"(1, 0, 0)x(1, 1, 0, 7)", "(0, 0, 0)x(0, 0, 0, 7)"}
 
 
 class TestFindBestParams:

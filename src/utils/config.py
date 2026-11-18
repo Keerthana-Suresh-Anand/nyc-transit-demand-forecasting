@@ -115,6 +115,9 @@ SARIMAX_EXOG_COLS = ["temp", "precip", "snow_lag1", "is_holiday"]
 # champion gate (which reads those logged metrics). Keep these in lockstep — a
 # mismatch silently overlaps the evaluation window with the training data.
 TEST_DAYS = 30
+# Within that window each family logs weekly 14-day forecasts (origins anchored to
+# the last actual, like production) as this MLflow artifact; the gate reads it.
+HOLDOUT_FORECASTS_ARTIFACT = "holdout_forecasts.json"
 
 # Training baseline written by evaluate_models, read by monitoring
 S3_TRAINING_BASELINE_KEY = "monitoring/training_baseline.json"
@@ -155,3 +158,6 @@ DATA_STALE_AFTER_DAYS = 14
 # SARIMAX_RESEARCH_DAYS, at which point the stepwise search runs again and re-pins.
 S3_SARIMAX_ORDER_KEY = "monitoring/sarimax_order.json"
 SARIMAX_RESEARCH_DAYS = 90
+# When re-selecting, candidate orders compete on 14-day rolling-origin MAE over the
+# last this-many days of the training data (8 weekly origins).
+SARIMAX_ORDER_VAL_DAYS = 63

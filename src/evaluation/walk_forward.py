@@ -29,6 +29,14 @@ from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from src.evaluation.evaluate_models import grid_search_weight
+from src.evaluation.origins import (
+    ORIGIN_STEP,
+    forecast_origins,
+    persistence_path,
+    sarimax_origin_forecasts,
+    seasonal_naive_path,
+    xgb_origin_forecasts,
+)
 from src.training.train_sarimax import EXOG_COLS, _load_cached_order, find_best_params
 from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
 from src.transformation import preprocess_ml
@@ -41,7 +49,7 @@ from src.utils.config import (
     GOLD_SARIMA_LOCAL_PATH,
     TEST_DAYS,
 )
-from src.utils.features import cast_categoricals, iterative_xgb_predict
+from src.utils.features import cast_categoricals
 from src.utils.logger import get_logger
 from src.utils.s3_helpers import get_s3_client
 
@@ -50,7 +58,7 @@ warnings.filterwarnings("always", category=ConvergenceWarning)  # keep convergen
 logger = get_logger(__name__)
 
 EVAL_DAYS = 90   # window over which origins roll
-STEP = 7         # weekly re-anchor, matching production cadence
+STEP = ORIGIN_STEP  # weekly re-anchor, matching production cadence
 H = FORECAST_HORIZON_DAYS
 
 
@@ -142,21 +150,6 @@ def significance_verdict(lo: float, hi: float, p1: str, p2: str) -> str:
     return "TIE (95% CI includes 0)"
 
 
-def forecast_origins(n: int, eval_days: int, horizon: int, step: int) -> list[int]:
-    """Origin positions (last known day of each backtest forecast) within the last
-    `eval_days` of an n-day series, each followed by a full `horizon` of actuals.
-
-    Anchored to the series' last day and stepping back whole weeks, so every origin
-    falls on the same weekday as production's origin (it forecasts from the last
-    actual). A forward step from the window start would put origins on an arbitrary
-    weekday — and since horizon step k then always lands on one weekday, the band's
-    per-step widths would be applied to the wrong weekdays in production.
-    """
-    last_origin = n - 1 - 7 * math.ceil(horizon / 7)
-    first_allowed = n - eval_days - 1
-    return list(range(last_origin, first_allowed - 1, -step))[::-1]
-
-
 def walk_forward(
     y: pd.Series, exog: pd.DataFrame, df_ml: pd.DataFrame,
     *, eval_days: int = EVAL_DAYS, step: int = STEP, horizon: int = H, order=None,
@@ -195,34 +188,15 @@ def walk_forward(
     xmodel = xgb.XGBRegressor(**xgb_params)
     xmodel.fit(x_ml.iloc[:ml_cut], y_ml.iloc[:ml_cut], verbose=False)
 
-    s_all, x_all, a_all, sn_all, pe_all = [], [], [], [], []
     origins = forecast_origins(n, eval_days, horizon, step)
     logger.info(f"Rolling over {len(origins)} weekly origins (H={horizon})")
-    for p in origins:
-        if p >= train_end:
-            add_idx = y.index[train_end:p + 1]
-            add_exog = pd.DataFrame(scaler.transform(exog.iloc[train_end:p + 1]),
-                                    index=add_idx, columns=EXOG_COLS)
-            res = base.append(y.iloc[train_end:p + 1], exog=add_exog, refit=False)
-        else:
-            res = base
-        fut_exog = pd.DataFrame(scaler.transform(exog.iloc[p + 1:p + 1 + horizon]),
-                                index=y.index[p + 1:p + 1 + horizon], columns=EXOG_COLS)
-        s_pred = np.asarray(res.get_forecast(steps=horizon, exog=fut_exog).predicted_mean)
-
-        pos_ml = df_ml.index.get_loc(y.index[p])
-        x_pred = iterative_xgb_predict(xmodel, df_ml, pos_ml + 1, horizon)
-
-        actual = np.asarray(y.iloc[p + 1:p + 1 + horizon])
-        # Multi-step naive baselines using only actuals known at origin p
-        naive = np.array([y.iloc[p + (h - 7 if h <= 7 else h - 14)] for h in range(1, horizon + 1)])
-        pers = np.full(horizon, y.iloc[p])
-
-        s_all.append(s_pred)
-        x_all.append(x_pred)
-        a_all.append(actual)
-        sn_all.append(naive)
-        pe_all.append(pers)
+    exog_s = pd.DataFrame(scaler.transform(exog), index=y.index, columns=EXOG_COLS)
+    s_all = sarimax_origin_forecasts(base, y, exog_s, train_end, origins, horizon)
+    x_all = xgb_origin_forecasts(xmodel, df_ml, [y.index[p] for p in origins], horizon)
+    a_all = [np.asarray(y.iloc[p + 1:p + 1 + horizon]) for p in origins]
+    # Naive baselines from actuals known at each origin only
+    sn_all = [seasonal_naive_path(y.iloc[:p + 1].to_numpy(), horizon) for p in origins]
+    pe_all = [persistence_path(y.iloc[:p + 1].to_numpy(), horizon) for p in origins]
 
     return {
         "sarimax": s_all, "xgboost": x_all, "actual": a_all,

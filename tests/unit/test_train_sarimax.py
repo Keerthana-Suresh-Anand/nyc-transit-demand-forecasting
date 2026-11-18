@@ -1,4 +1,5 @@
 """Tests for SARIMAX training helpers."""
+import inspect
 from datetime import date, timedelta
 from unittest.mock import MagicMock
 
@@ -74,6 +75,24 @@ class TestResolveOrder:
         self._patch(monkeypatch, ((1, 0, 1), (2, 1, 0, 7), edge))
         _, _, source = resolve_order(MagicMock(), pd.Series([1.0]), pd.DataFrame())
         assert source == "auto_arima_stepwise"
+
+
+class TestFindBestParams:
+    def test_exog_reaches_auto_arima(self, monkeypatch):
+        """pmdarima silently ignores an unknown keyword like `exog=`, so the order
+        search would run without regressors and nothing would fail."""
+        assert "X" in inspect.signature(ts.pm.auto_arima).parameters
+        captured = {}
+
+        def fake_auto_arima(y, **kwargs):
+            captured.update(kwargs)
+            return MagicMock(order=(1, 0, 1), seasonal_order=(2, 1, 0, 7))
+
+        monkeypatch.setattr(ts.pm, "auto_arima", fake_auto_arima)
+        exog = _make_exog(50)
+        ts.find_best_params(pd.Series(range(50), index=exog.index, dtype=float), exog)
+        assert captured.get("X") is exog
+        assert "exog" not in captured
 
 
 class TestScaleExog:

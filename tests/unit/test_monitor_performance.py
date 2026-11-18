@@ -216,6 +216,18 @@ class TestComputeForecastMetrics:
             _compute_forecast_metrics(under, gold)["rolling_mae_M"]
         )
 
+    def test_bias_keeps_the_sign_mae_drops(self):
+        gold = _make_gold(30)
+        dates = gold.index[-2:]
+        actual = gold.loc[dates, "daily_ridership"].to_numpy() / 1_000_000
+        past_fc = pd.DataFrame({
+            "date": dates.date,
+            "ensemble_forecast_M": actual - [0.3, 0.1],  # both under-forecast
+        })
+        result = _compute_forecast_metrics(past_fc, gold)
+        assert result["rolling_bias_M"] == pytest.approx(-0.2, abs=1e-6)
+        assert result["rolling_mae_M"] == pytest.approx(0.2, abs=1e-6)
+
     def test_returns_mape_as_percentage(self):
         gold = _make_gold(30)
         match_date = gold.index[-1]

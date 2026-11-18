@@ -86,7 +86,7 @@ def _show(fig):
     undo) while leaving hover tooltips intact."""
     fig.update_xaxes(fixedrange=True)
     fig.update_yaxes(fixedrange=True)
-    st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
+    st.plotly_chart(fig, width="stretch", config=_PLOTLY_CONFIG)
 
 # Medallion data-flow diagram for the "How It Works" section (rendered by graphviz).
 _PIPELINE_DOT = """
@@ -94,7 +94,7 @@ digraph {
     rankdir=LR; bgcolor="transparent";
     node [shape=box style="rounded,filled" fontcolor=white color="#444444" fillcolor="#1b2330" fontsize=10];
     edge [color="#888888"];
-    apis   [label="MTA · Weather · Events\\nAPIs" fillcolor="#22303f"];
+    apis   [label="MTA · Weather\\nAPIs" fillcolor="#22303f"];
     bronze [label="Bronze\\nraw CSVs"];
     silver [label="Silver\\nmerged"];
     gold   [label="Gold\\nfeatures"];
@@ -154,6 +154,27 @@ def _accuracy_view(wf: dict | None, bl: dict | None) -> dict | None:
 
 
 acc = _accuracy_view(walkforward, baseline)
+
+# Claims about which model wins are derived from the latest backtest's bootstrap
+# verdicts, never hardcoded: each monthly retrain re-runs the backtest and the
+# verdicts change (the 2026-10 "ensemble beats SARIMAX" became a tie in 2026-11).
+_sig = (acc or {}).get("significance") or {}
+
+
+def _verdict(key: str) -> str:
+    return (_sig.get(key) or {}).get("verdict", "")
+
+
+def _ensemble_vs(other: str) -> str:
+    v = _verdict(f"ensemble_vs_{other.lower()}")
+    if v.startswith("ensemble significantly"):
+        return f"significantly beats {other}"
+    if v.startswith(f"{other} significantly"):
+        return f"loses to {other}"
+    return f"ties {other}"
+
+
+_models_tie = _verdict("sarimax_vs_xgboost").startswith("TIE")
 
 
 def side_text(text: str) -> None:
@@ -424,7 +445,7 @@ if _has_band:
         f"{lo:.2f} – {hi:.2f}"
         for lo, hi in zip(fwd7["ci_lower"], fwd7["ci_upper"], strict=True)
     ]
-st.dataframe(_daily, hide_index=True, use_container_width=True)
+st.dataframe(_daily, hide_index=True, width="stretch")
 
 st.divider()
 
@@ -457,7 +478,7 @@ with st.expander("🏗  Architecture & MLOps", expanded=True):
 
 with st.expander("🧠  Models"):
     st.markdown(
-        "**SARIMAX** — weekly + annual seasonality with weather, holiday, and snow-lag exogenous "
+        "**SARIMAX** — weekly seasonality with weather, holiday, and snow-lag exogenous "
         "inputs. Order chosen by auto-ARIMA (cached between runs); exog min-max scaled.\n\n"
         "**XGBoost** — gradient-boosted trees over ridership lags (1/2/3/7/14-day), rolling stats "
         "(7-day std, 14-day mean), and calendar features. Early-stopped tree count; SHAP computed "
@@ -466,15 +487,32 @@ with st.expander("🧠  Models"):
         "Model Accuracy below."
     )
 
+if not _sig:
+    _why = ("**Why 50/50?** Equal weights until a backtest shows a reliable winner — tuning a "
+            "precise weight on a short window overfits noise.\n\n")
+else:
+    if _models_tie:
+        _why = ("**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon "
+                "and weekly re-anchor) finds SARIMAX and XGBoost statistically indistinguishable — "
+                "the block-bootstrap 95% CI on their MAE difference spans zero. With no reliable "
+                "winner, equal weighting is the honest choice; tuning a precise weight overfits "
+                "noise.\n\n")
+    else:
+        _leader = _verdict("sarimax_vs_xgboost").split(" significantly")[0]
+        _why = (f"**Why 50/50?** The latest walk-forward gives {_leader} a significant edge, but "
+                "one ~11-origin window is too thin to re-weight on; 50/50 holds until a longer, "
+                "multi-season backtest confirms it.\n\n")
+    _keep = (f"**Why keep both?** In the latest backtest the ensemble {_ensemble_vs('SARIMAX')} "
+             f"and {_ensemble_vs('XGBoost')}")
+    _keep += ("." if "loses" in _keep else
+              " — averaging two model families costs no measurable accuracy and hedges against "
+              "either one failing.")
+    _why += _keep + "\n\n"
+
 with st.expander("🔬  Evaluation methodology"):
     st.markdown(
-        "**Why 50/50?** A 14-day rolling-origin walk-forward (matching production's horizon and "
-        "weekly re-anchor) found SARIMAX and XGBoost statistically indistinguishable — a block "
-        "bootstrap put that MAE-difference 95% CI across zero. With no reliable winner between "
-        "them, equal weighting is the honest choice; tuning a precise weight overfits noise.\n\n"
-        "**Why keep both?** The ensemble significantly beats SARIMAX and ties XGBoost, so "
-        "diversification helps against one component and costs nothing against the other.\n\n"
-        "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
+        _why
+        + "**Retraining** is triggered by MAE degradation, not drift — PSI on weather features fires "
         "seasonal false alarms, so it's tracked but informational only.\n\n"
         "**Benchmarks** (seasonal-naive, persistence) are scored every cycle: a model is only as "
         "good as what it beats."
@@ -537,8 +575,9 @@ if acc:
     # Bootstrap significance — only the walk-forward has enough origins to resample.
     if acc.get("significance"):
         st.markdown("**Is the difference real?** — block bootstrap, 95% CI on the MAE difference:")
-        st.caption("Where the CI spans zero, the two are statistically indistinguishable. "
-                   "SARIMAX and XGBoost tie, which is why the ensemble weights them 50/50.")
+        st.caption("Where the CI spans zero, the two are statistically indistinguishable."
+                   + (" SARIMAX and XGBoost tie, which is why the ensemble weights them 50/50."
+                      if _models_tie else ""))
         for _key, _lbl in [
             ("sarimax_vs_xgboost", "SARIMAX vs XGBoost"),
             ("ensemble_vs_sarimax", "Ensemble vs SARIMAX"),
@@ -568,7 +607,7 @@ if walkforward and walkforward.get("bias"):
             })
     st.divider()
     st.markdown("**Per-model metrics** (walk-forward)")
-    st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(_rows), hide_index=True, width="stretch")
     st.caption("MASE < 1 beats seasonal-naive. Bias = mean(forecast − actual): "
                "**+ over-, − under-forecasts** — the directional skew MAE/MAPE hide.")
 
@@ -661,7 +700,7 @@ with shap_col:
         st.image(
             shap_img,
             caption="XGBoost — SHAP feature importance: ridership-lag momentum dominates; weather adds signal at the margin",
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.info("XGBoost SHAP plot generates on the next training run.")

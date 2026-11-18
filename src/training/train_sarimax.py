@@ -59,9 +59,12 @@ def scale_exog(
 
 def find_best_params(train_y: pd.Series, train_exog: pd.DataFrame) -> tuple:
     logger.info("Starting Auto-ARIMA stepwise search...")
+    # pmdarima >= 2.0 names the exogenous argument `X`. An unknown keyword such as
+    # `exog=` is silently swallowed into **fit_args, so the search would pick an
+    # order for a model with no regressors.
     auto_model = pm.auto_arima(
         train_y,
-        exog=train_exog,
+        X=train_exog,
         start_p=0,
         start_q=0,
         max_p=3,

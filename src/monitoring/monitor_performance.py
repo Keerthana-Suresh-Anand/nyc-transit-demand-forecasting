@@ -174,6 +174,9 @@ def _compute_forecast_metrics(
         "n_evaluated": len(records),
         "rolling_mae_M": float(np.mean(np.abs(errors))),
         "rolling_mape_pct": float(np.mean(np.abs(errors / actuals)) * 100),
+        # Mean signed error (forecast − actual): − = under-forecasting. MAE hides it,
+        # and a symmetric band around a biased line misses on one side only.
+        "rolling_bias_M": float(np.mean(errors)),
     }
 
     # Trigger MAE: only forecasts made by the models serving now. The rolling MAE

@@ -22,7 +22,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
@@ -38,7 +37,9 @@ from src.evaluation.origins import (
     xgb_origin_forecasts,
 )
 from src.training.train_sarimax import EXOG_COLS, _load_cached_order, find_best_params
-from src.training.train_xgboost import XGB_PARAMS, get_feature_cols
+from src.training.train_xgboost import get_feature_cols
+from src.training.tune_xgboost import LIBRARY_DEFAULTS, load_serving_params
+from src.training.xgb_recipe import fit_recipe
 from src.transformation import preprocess_ml
 from src.utils.config import (
     CI_COVERAGE,
@@ -47,7 +48,6 @@ from src.utils.config import (
     FORECAST_HORIZON_DAYS,
     GOLD_ML_LOCAL_PATH,
     GOLD_SARIMA_LOCAL_PATH,
-    TEST_DAYS,
 )
 from src.utils.features import cast_categoricals
 from src.utils.logger import get_logger
@@ -153,6 +153,7 @@ def significance_verdict(lo: float, hi: float, p1: str, p2: str) -> str:
 def walk_forward(
     y: pd.Series, exog: pd.DataFrame, df_ml: pd.DataFrame,
     *, eval_days: int = EVAL_DAYS, step: int = STEP, horizon: int = H, order=None,
+    xgb_params: dict | None = None,
 ) -> dict:
     """Fit the two models once, then roll a `horizon`-day origin forward weekly over
     the last `eval_days`. Returns per-origin prediction blocks (lists of arrays) for
@@ -177,16 +178,10 @@ def walk_forward(
     ml_cut = df_ml.index.get_loc(cutoff_date) + 1
     x_ml = df_ml[feat]
     y_ml = df_ml["daily_ridership"] / 1_000_000
-    # Production recipe (train_xgboost.run): early-stop on a validation tail held
-    # out of the fit, then refit on the full training window with that tree count.
-    val_cut = ml_cut - TEST_DAYS
-    es_model = xgb.XGBRegressor(**XGB_PARAMS)
-    es_model.fit(x_ml.iloc[:val_cut], y_ml.iloc[:val_cut],
-                 eval_set=[(x_ml.iloc[val_cut:ml_cut], y_ml.iloc[val_cut:ml_cut])], verbose=False)
-    xgb_params = {k: v for k, v in XGB_PARAMS.items() if k != "early_stopping_rounds"}
-    xgb_params["n_estimators"] = (es_model.best_iteration or 0) + 1
-    xmodel = xgb.XGBRegressor(**xgb_params)
-    xmodel.fit(x_ml.iloc[:ml_cut], y_ml.iloc[:ml_cut], verbose=False)
+    # Production recipe (xgb_recipe): early-stop on a validation tail held out of
+    # the fit, then refit on the full training window with that tree count.
+    xmodel, _ = fit_recipe(LIBRARY_DEFAULTS if xgb_params is None else xgb_params,
+                           x_ml.iloc[:ml_cut], y_ml.iloc[:ml_cut])
 
     origins = forecast_origins(n, eval_days, horizon, step)
     logger.info(f"Rolling over {len(origins)} weekly origins (H={horizon})")
@@ -367,6 +362,19 @@ def _pinned_production_order() -> tuple | None:
     return order_pdq, seasonal_order
 
 
+def _serving_xgb_params() -> dict | None:
+    """Best-effort fetch of production's tuned XGBoost parameters from S3, so the
+    backtest evaluates the configuration that ships (as with the pinned SARIMAX
+    order). Known leak, accepted for now: that tuning may have seen part of this
+    backtest's window — the nested fix is to re-tune on the backtest's own training
+    data."""
+    try:
+        return load_serving_params(get_s3_client())
+    except Exception as e:
+        logger.warning(f"Could not read XGBoost parameters ({e})")
+        return None
+
+
 def run(order: tuple | None = None) -> dict:
     logger.info(f"Regenerating ML gold; walk-forward H={H}, step={STEP}, eval window={EVAL_DAYS}d")
     preprocess_ml.run()
@@ -391,8 +399,12 @@ def run(order: tuple | None = None) -> dict:
         + (f"pinned to production {order[0]}x{order[1]}" if order else "re-searching (no pin available)")
     )
 
-    blocks = walk_forward(y, exog, df_ml, order=order)
+    xgb_params = _serving_xgb_params()
+    if xgb_params is None:
+        logger.warning("No persisted XGBoost parameters; walk-forward uses library defaults")
+    blocks = walk_forward(y, exog, df_ml, order=order, xgb_params=xgb_params)
     results = summarize(blocks)
+    results["xgboost_params_source"] = "serving" if xgb_params is not None else "library_defaults"
     results["sarimax_order_source"] = "pinned_production" if order else "re_searched"
     if order:
         results["sarimax_order"] = {"order": list(order[0]), "seasonal_order": list(order[1])}

@@ -161,3 +161,30 @@ SARIMAX_RESEARCH_DAYS = 90
 # When re-selecting, candidate orders compete on 14-day rolling-origin MAE over the
 # last this-many days of the training data (8 weekly origins).
 SARIMAX_ORDER_VAL_DAYS = 63
+
+# XGBoost hyperparameters are chosen by the training pipeline, not written in code.
+# The tuned set is persisted in S3 like the SARIMAX order and re-tuned when it is
+# older than XGB_RETUNE_DAYS (a stable model between re-tunes, comparable run to run).
+S3_XGB_PARAMS_KEY = "monitoring/xgboost_params.json"
+XGB_RETUNE_DAYS = 90
+# Optuna (seeded TPE) search. Each trial is scored on XGB_TUNING_FOLDS validation
+# windows of XGB_TUNING_VAL_DAYS (weekly iterative 14-day forecasts, the served
+# task), spaced XGB_TUNING_FOLD_SPACING_DAYS apart so the folds span every season.
+XGB_TUNING_TRIALS = 40
+XGB_TUNING_FOLDS = 4
+XGB_TUNING_VAL_DAYS = 63
+XGB_TUNING_FOLD_SPACING_DAYS = 91
+# A re-tune replaces the serving parameters only if the challenger's validation
+# MAE beats theirs (re-scored on the same folds) by this relative margin, so fold
+# noise alone can't churn the model's configuration.
+XGB_RETUNE_MIN_GAIN = 0.02
+# Search space. n_estimators is not searched: every fit early-stops on a validation
+# tail and refits with that tree count (`src/training/xgb_recipe.py`).
+XGB_SEARCH_SPACE = {
+    "max_depth": {"type": "int", "low": 2, "high": 8},
+    "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
+    "subsample": {"type": "float", "low": 0.5, "high": 1.0},
+    "colsample_bytree": {"type": "float", "low": 0.5, "high": 1.0},
+    "min_child_weight": {"type": "float", "low": 1.0, "high": 20.0, "log": True},
+    "reg_lambda": {"type": "float", "low": 0.1, "high": 50.0, "log": True},
+}

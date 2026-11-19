@@ -1,7 +1,8 @@
 """Tests for the champion gate and ensemble weight analysis.
 
-The gate compares the candidate's logged holdout forecast with the Production
-version re-scored on the same window, plus a seasonal-naive floor. Tests patch the
+The gate compares the candidate's logged per-origin holdout forecasts with the
+Production version re-scored from the origins it can be scored on fairly, plus a
+same-origin seasonal-naive floor. Tests patch the
 MLflow-facing helpers (and the Production scorer) directly so they exercise the
 gating/ensemble logic without a real registry.
 """
@@ -16,9 +17,10 @@ import pytest
 
 from src.evaluation import evaluate_models
 from src.evaluation.evaluate_models import (
+    baseline_predictions,
+    evaluate_baselines,
     promotion_decision,
     run,
-    seasonal_naive_from_origin,
 )
 from src.utils.config import (
     ENSEMBLE_SARIMAX_WEIGHT,
@@ -27,12 +29,21 @@ from src.utils.config import (
     XGBOOST_MODEL_NAME,
 )
 
-HOLDOUT_START = "2025-01-01"
+ORIGINS = pd.to_datetime(["2024-12-31", "2025-01-07", "2025-01-14"])
+H = 14
 
 
 def _holdout(pred: np.ndarray, actual: np.ndarray) -> pd.DataFrame:
-    dates = pd.date_range(HOLDOUT_START, periods=len(pred), freq="D").strftime("%Y-%m-%d")
-    return pd.DataFrame({"date": dates, "y_true": actual, "y_pred": pred})
+    """Per-origin holdout records: three weekly origins x 14 steps (42 rows)."""
+    frames = [
+        pd.DataFrame({
+            "origin": o,
+            "date": pd.date_range(o + pd.Timedelta(days=1), periods=H, freq="D"),
+            "step": np.arange(1, H + 1),
+        })
+        for o in ORIGINS
+    ]
+    return pd.concat(frames, ignore_index=True).assign(y_true=actual, y_pred=pred)
 
 
 def _gold(level_m: float = 1.0) -> pd.DataFrame:
@@ -45,7 +56,7 @@ def _gold(level_m: float = 1.0) -> pd.DataFrame:
 @contextlib.contextmanager
 def _patched(*, versions: dict, mae: dict, holdout: dict | None = None,
              prod_after: dict | None = None, prod_mae: dict | None = None,
-             gold: pd.DataFrame | None = None):
+             gold: pd.DataFrame | None = None, prod_cutoff: dict | None = None):
     """Patch the gate's MLflow-facing helpers.
 
     versions:   {model_name: (new_ver, prod_ver)}
@@ -54,22 +65,34 @@ def _patched(*, versions: dict, mae: dict, holdout: dict | None = None,
     prod_after: {model_name: version} — what resolve_production_version reports
                 after the gates ran; defaults to each family's candidate version
                 (i.e. candidates were promoted, baseline and production aligned).
-    prod_mae:   {model_name: MAE or None} — the Production version's MAE when
-                re-scored on the candidate's window (None = not scorable). Defaults
+    prod_mae:   {model_name: MAE or None} — the Production version's error when
+                re-scored from the holdout origins (None = not scorable). Defaults
                 to the Production version's own logged MAE.
     gold:       gold SARIMA frame for the seasonal-naive floor.
+    prod_cutoff:{model_name: date} — Production's training cutoff; only origins on
+                or after it are scored. Defaults to before every origin.
     """
+    prod_cutoff = prod_cutoff or {}
     if holdout is None:
-        flat = _holdout(np.full(30, 0.1), np.full(30, 0.1))
-        holdout = {SARIMAX_MODEL_NAME: flat, XGBOOST_MODEL_NAME: flat}
+        # Each candidate's rows carry its logged MAE as a constant error.
+        actual = np.full(3 * H, 0.1)
+        holdout = {
+            name: _holdout(actual + (mae.get((name, vers[0])) or 0.0), actual)
+            for name, vers in versions.items()
+        }
     if prod_after is None:
         prod_after = {name: vers[0] for name, vers in versions.items()}
     if prod_mae is None:
         prod_mae = {name: mae.get((name, vers[1])) for name, vers in versions.items()}
 
-    def score_production(_client, name, _version, _dates):
+    def score_production(_client, name, _version, origins):
         err = prod_mae.get(name)
-        return None if err is None else holdout[name]["y_true"].to_numpy() + err
+        cutoff = pd.Timestamp(prod_cutoff.get(name, "2024-01-01"))
+        if err is None:
+            return cutoff, {}
+        h = holdout[name]
+        return cutoff, {o: h.loc[h["origin"] == o, "y_true"].to_numpy() + err
+                        for o in origins if o >= cutoff}
 
     def latest_prod(_client, name):
         return versions.get(name, (None, None))
@@ -185,9 +208,9 @@ class TestModelPromotion:
 
 class TestEnsembleBaseline:
     def test_writes_ensemble_mae_to_s3(self):
-        sar = np.full(30, 0.10)
-        xgb = np.full(30, 0.20)
-        actual = np.full(30, 0.16)
+        sar = np.full(3 * H, 0.10)
+        xgb = np.full(3 * H, 0.20)
+        actual = np.full(3 * H, 0.16)
         expected_ensemble = ENSEMBLE_SARIMAX_WEIGHT * sar + ENSEMBLE_XGB_WEIGHT * xgb
         expected_mae = float(np.mean(np.abs(expected_ensemble - actual)))
 
@@ -311,18 +334,57 @@ class TestHeadToHeadGate:
         assert any("does not beat seasonal-naive" in c.args[0]
                    for c in mock_logger.warning.call_args_list)
 
-    def test_gate_records_window_and_all_three_maes(self):
+    def test_gate_records_origins_and_all_three_maes(self):
+        actual = np.full(3 * H, 0.1)
+        h = _holdout(actual + 0.04, actual)
         with _patched(
             versions={SARIMAX_MODEL_NAME: (2, 1), XGBOOST_MODEL_NAME: (2, 1)},
             mae={(SARIMAX_MODEL_NAME, 2): 0.04, (SARIMAX_MODEL_NAME, 1): 0.06,
                  (XGBOOST_MODEL_NAME, 2): 0.04, (XGBOOST_MODEL_NAME, 1): 0.06},
+            holdout={SARIMAX_MODEL_NAME: h, XGBOOST_MODEL_NAME: h},
         ) as (_, write):
             run()
         g = write.call_args[0][1]["gate"]["sarimax"]
-        assert g["window"] == ["2025-01-01", "2025-01-30"]
+        assert g["origins"] == ["2024-12-31", "2025-01-07", "2025-01-14"]
+        assert g["n_points"] == 3 * H
         assert g["candidate_mae"] == pytest.approx(0.04)
         assert g["production_mae"] == pytest.approx(0.06)
         assert g["naive_mae"] == pytest.approx(0.9)
+
+    def test_compares_only_origins_after_production_cutoff(self):
+        # Regression: Production trained into part of the holdout (retrains < 30
+        # days apart). The old gate gave up and fell back to the naive floor; the
+        # origins after its cutoff are still a fair head-to-head.
+        actual = np.full(3 * H, 0.1)
+        cand_err = np.r_[np.full(H, 0.50), np.full(2 * H, 0.02)]  # bad only on origin 1
+        h = _holdout(actual + cand_err, actual)
+        with _patched(
+            versions={SARIMAX_MODEL_NAME: (2, 1), XGBOOST_MODEL_NAME: (2, 1)},
+            mae={(SARIMAX_MODEL_NAME, 2): 0.18, (SARIMAX_MODEL_NAME, 1): 0.05,
+                 (XGBOOST_MODEL_NAME, 2): 0.18, (XGBOOST_MODEL_NAME, 1): 0.05},
+            holdout={SARIMAX_MODEL_NAME: h, XGBOOST_MODEL_NAME: h},
+            prod_mae={SARIMAX_MODEL_NAME: 0.05, XGBOOST_MODEL_NAME: 0.05},
+            prod_cutoff={SARIMAX_MODEL_NAME: "2025-01-05", XGBOOST_MODEL_NAME: "2025-01-05"},
+        ) as (promote, write):
+            run()
+        g = write.call_args[0][1]["gate"]["sarimax"]
+        assert g["method"] == "head_to_head"
+        assert g["origins"] == ["2025-01-07", "2025-01-14"]
+        assert g["candidate_mae"] == pytest.approx(0.02)
+        assert g["production_cutoff"] == "2025-01-05"
+        assert {c.args[2] for c in promote.call_args_list} == {2}
+
+    def test_cutoff_after_every_origin_falls_back_to_naive_floor(self):
+        with _patched(
+            versions={SARIMAX_MODEL_NAME: (2, 1), XGBOOST_MODEL_NAME: (2, 1)},
+            mae={(SARIMAX_MODEL_NAME, 2): 0.05, (SARIMAX_MODEL_NAME, 1): 0.06,
+                 (XGBOOST_MODEL_NAME, 2): 0.05, (XGBOOST_MODEL_NAME, 1): 0.06},
+            prod_cutoff={SARIMAX_MODEL_NAME: "2025-01-20", XGBOOST_MODEL_NAME: "2025-01-20"},
+        ) as (_, write):
+            run()
+        g = write.call_args[0][1]["gate"]["xgboost"]
+        assert g["method"] == "naive_floor"
+        assert g["n_points"] == 3 * H
 
 
 class TestPromotionDecision:
@@ -336,16 +398,27 @@ class TestPromotionDecision:
         assert promotion_decision(0.25, None, 0.20) == (False, "naive_floor")
 
 
-class TestSeasonalNaiveFromOrigin:
-    def test_uses_only_values_known_at_origin(self):
-        # Origin = Jan 31; days 1-7 copy the week before, days 8-14 the week before that
-        idx = pd.date_range("2025-01-01", "2025-02-14", freq="D")
+class TestBaselines:
+    def test_naive_paths_use_only_values_known_at_each_origin(self):
+        idx = pd.date_range("2024-11-01", "2025-02-15", freq="D")
         y = pd.Series(np.arange(len(idx), dtype=float), index=idx)
-        dates = pd.date_range("2025-02-01", periods=14, freq="D")
-        pred = seasonal_naive_from_origin(y, dates)
-        assert list(pred[:7]) == [y[d - pd.Timedelta(days=7)] for d in dates[:7]]
-        assert list(pred[7:]) == [y[d - pd.Timedelta(days=14)] for d in dates[7:]]
-        assert max(pred) <= y[pd.Timestamp("2025-01-31")]  # nothing after the origin
+        records = _holdout(np.zeros(3 * H), np.zeros(3 * H))
+        sn = baseline_predictions(y, records, "seasonal_naive")
+        pe = baseline_predictions(y, records, "persistence")
+        for i, origin in enumerate(ORIGINS):
+            block = slice(i * H, (i + 1) * H)
+            assert sn[block].max() <= y[origin]
+            assert (pe[block] == y[origin]).all()
+            dates = pd.date_range(origin + pd.Timedelta(days=1), periods=H)
+            assert list(sn[block][:7]) == [y[d - pd.Timedelta(days=7)] for d in dates[:7]]
+            assert list(sn[block][7:]) == [y[d - pd.Timedelta(days=14)] for d in dates[7:]]
+
+    def test_evaluate_baselines_reports_both_benchmarks(self):
+        y = pd.Series(1.0, index=pd.date_range("2024-11-01", "2025-02-15", freq="D"))
+        records = _holdout(np.zeros(3 * H), np.full(3 * H, 0.8))
+        out = evaluate_baselines(y, records)
+        assert out["seasonal_naive_m7"]["mae"] == pytest.approx(0.2)
+        assert out["persistence"]["n_evaluated"] == 3 * H
 
 
 def _synthetic_gold(n=120) -> pd.DataFrame:
@@ -386,22 +459,28 @@ class TestProductionScorers:
     def test_sarimax_scored_from_origin_via_reanchor(self, tmp_path):
         gold = _synthetic_gold()
         model, scaler_path = self._sarimax(gold, "2025-03-01", tmp_path)
-        dates = pd.date_range("2025-03-20", periods=14, freq="D")  # 18-day gap to re-anchor
+        origin = pd.Timestamp("2025-03-19")  # 18-day gap to re-anchor
         with patch.object(evaluate_models.mlflow.statsmodels, "load_model", return_value=model), \
              patch.object(evaluate_models.mlflow.artifacts, "download_artifacts", return_value=scaler_path), \
              patch.object(evaluate_models, "_load_gold_sarima", return_value=gold):
-            pred = evaluate_models._score_sarimax(self._client(), 1, dates)
-        actual = gold.loc[dates, "daily_ridership"].to_numpy() / 1e6
-        assert len(pred) == 14
-        assert np.mean(np.abs(pred - actual)) < 0.5  # tracks the weekly pattern
-
-    def test_sarimax_trained_into_window_is_not_scored(self, tmp_path):
-        gold = _synthetic_gold()
-        model, _ = self._sarimax(gold, "2025-03-25", tmp_path)
+            cutoff, preds = evaluate_models._score_sarimax(self._client(), 1, [origin])
         dates = pd.date_range("2025-03-20", periods=14, freq="D")
+        actual = gold.loc[dates, "daily_ridership"].to_numpy() / 1e6
+        assert cutoff == pd.Timestamp("2025-03-01")
+        assert len(preds[origin]) == 14
+        assert np.mean(np.abs(preds[origin] - actual)) < 0.5  # tracks the weekly pattern
+
+    def test_sarimax_scores_only_origins_after_its_training_data(self, tmp_path):
+        gold = _synthetic_gold()
+        model, scaler_path = self._sarimax(gold, "2025-03-10", tmp_path)
+        early, late = pd.Timestamp("2025-03-05"), pd.Timestamp("2025-03-19")
         with patch.object(evaluate_models.mlflow.statsmodels, "load_model", return_value=model), \
+             patch.object(evaluate_models.mlflow.artifacts, "download_artifacts", return_value=scaler_path), \
              patch.object(evaluate_models, "_load_gold_sarima", return_value=gold):
-            assert evaluate_models._score_sarimax(self._client(), 1, dates) is None
+            _, preds = evaluate_models._score_sarimax(self._client(), 1, [early, late])
+            _, none = evaluate_models._score_sarimax(self._client(), 1, [early])
+        assert list(preds) == [late]
+        assert none == {}
 
     def test_xgboost_scored_iteratively_only_when_trained_before_window(self, tmp_path):
         import xgboost as xgb
@@ -416,18 +495,20 @@ class TestProductionScorers:
         train = df_ml.loc[:"2025-03-01"]
         model = xgb.XGBRegressor(n_estimators=20, max_depth=3, enable_categorical=True,
                                  tree_method="hist").fit(train[feats], train["daily_ridership"] / 1e6)
-        dates = pd.date_range("2025-03-20", periods=14, freq="D")
+        origin = pd.Timestamp("2025-03-19")
         with patch.object(evaluate_models.mlflow.xgboost, "load_model", return_value=model), \
              patch.object(evaluate_models, "GOLD_ML_LOCAL_PATH", ml_path):
-            pred = evaluate_models._score_xgboost(
-                self._client({"data_version_date": "2025-03-01"}), 1, dates)
-            assert len(pred) == 14
-            assert evaluate_models._score_xgboost(
-                self._client({"data_version_date": "2025-03-25"}), 1, dates) is None
+            _, preds = evaluate_models._score_xgboost(
+                self._client({"data_version_date": "2025-03-01"}), 1, [origin])
+            assert len(preds[origin]) == 14
+            _, late = evaluate_models._score_xgboost(
+                self._client({"data_version_date": "2025-03-25"}), 1, [origin])
+            assert late == {}
+            assert evaluate_models._score_xgboost(self._client({}), 1, [origin]) == (None, {})
 
-    def test_scoring_failure_returns_none_not_raises(self):
+    def test_scoring_failure_returns_empty_not_raises(self):
         with patch.dict(evaluate_models._PRODUCTION_SCORERS,
                         {SARIMAX_MODEL_NAME: MagicMock(side_effect=ValueError("feature mismatch"))}):
             out = evaluate_models._score_production(
-                MagicMock(), SARIMAX_MODEL_NAME, 1, pd.date_range("2025-01-01", periods=3))
-        assert out is None
+                MagicMock(), SARIMAX_MODEL_NAME, 1, [pd.Timestamp("2025-01-01")])
+        assert out == (None, {})

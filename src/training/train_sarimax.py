@@ -8,12 +8,14 @@ import mlflow.statsmodels
 import numpy as np
 import pandas as pd
 import pmdarima as pm
-from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+from src.evaluation.origins import forecast_origins, origin_records, sarimax_origin_forecasts
+from src.training.holdout import log_holdout
 from src.utils.config import (
+    FORECAST_HORIZON_DAYS,
     GOLD_SARIMA_LOCAL_PATH,
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_TRACKING_URI,
@@ -21,6 +23,7 @@ from src.utils.config import (
     S3_SARIMAX_ORDER_KEY,
     SARIMAX_EXOG_COLS,
     SARIMAX_MODEL_NAME,
+    SARIMAX_ORDER_VAL_DAYS,
     SARIMAX_RESEARCH_DAYS,
     TEST_DAYS,
 )
@@ -94,7 +97,7 @@ def _load_cached_order(s3) -> tuple[tuple, tuple, date] | None:
         return None
 
 
-def _save_cached_order(s3, order: tuple, seasonal_order: tuple) -> None:
+def _save_cached_order(s3, order: tuple, seasonal_order: tuple, evidence: dict | None = None) -> None:
     try:
         write_s3_json(
             s3,
@@ -102,6 +105,7 @@ def _save_cached_order(s3, order: tuple, seasonal_order: tuple) -> None:
                 "order": list(order),
                 "seasonal_order": list(seasonal_order),
                 "search_date": str(date.today()),
+                "validation_mae": evidence or {},
             },
             S3_SARIMAX_ORDER_KEY,
         )
@@ -110,10 +114,52 @@ def _save_cached_order(s3, order: tuple, seasonal_order: tuple) -> None:
         logger.warning(f"Could not persist SARIMAX order to S3: {e}")
 
 
+def select_order_by_validation(
+    train_y: pd.Series, train_exog: pd.DataFrame, candidates: list[tuple[tuple, tuple]]
+) -> tuple[tuple[tuple, tuple], dict[str, float]]:
+    """Pick the candidate order with the lowest 14-day rolling-origin MAE over the
+    last SARIMAX_ORDER_VAL_DAYS of the training data.
+
+    auto_arima ranks orders by in-sample AIC, which is not what the model is used
+    for: on 2026-11 data its exog-aware pick, (0,0,1)x(1,1,1,7), had a walk-forward
+    MAE of 0.265 vs 0.204 for the order it would have replaced. Out-of-sample
+    forecast error is the criterion that matters, and it is measured on training
+    data only, so the holdout stays untouched. Candidates that fail to fit are
+    skipped; returns (best, {candidate: MAE}).
+    """
+    n = len(train_y)
+    fit_end = n - SARIMAX_ORDER_VAL_DAYS
+    origins = forecast_origins(n, SARIMAX_ORDER_VAL_DAYS, FORECAST_HORIZON_DAYS)
+    actual = np.concatenate(
+        [train_y.iloc[p + 1:p + 1 + FORECAST_HORIZON_DAYS].to_numpy() for p in origins])
+    scores: dict[str, float] = {}
+    for order, seasonal_order in candidates:
+        label = f"{tuple(order)}x{tuple(seasonal_order)}"
+        try:
+            res = SARIMAX(train_y.iloc[:fit_end], exog=train_exog.iloc[:fit_end], order=order,
+                          seasonal_order=seasonal_order, enforce_stationarity=False,
+                          enforce_invertibility=False).fit(disp=False)
+            preds = sarimax_origin_forecasts(res, train_y, train_exog, fit_end, origins,
+                                             FORECAST_HORIZON_DAYS)
+        except Exception as e:
+            logger.warning(f"Order {label} failed validation fit: {e}")
+            continue
+        scores[label] = float(np.mean(np.abs(np.concatenate(preds) - actual)))
+        logger.info(f"Order {label}: validation MAE {scores[label]:.4f}M "
+                    f"({len(origins)} weekly 14-day forecasts)")
+    if not scores:
+        raise RuntimeError("No SARIMAX order candidate could be fit for validation")
+    best = min(scores, key=scores.get)
+    return candidates[list(f"{tuple(o)}x{tuple(s)}" for o, s in candidates).index(best)], scores
+
+
 def resolve_order(s3, train_y: pd.Series, train_exog: pd.DataFrame) -> tuple[tuple, tuple, str]:
-    """Reuse the cached SARIMAX order while it is fresh; otherwise re-search and
+    """Reuse the cached SARIMAX order while it is fresh; otherwise re-select and
     re-pin it. Keeps the production architecture stable run to run instead of
-    letting auto_arima silently pick a new order every training cycle.
+    letting the order change every training cycle.
+
+    Re-selection: auto_arima proposes an order, and the expiring cached order
+    competes with it on out-of-sample validation error (``select_order_by_validation``).
     """
     cached = _load_cached_order(s3)
     if cached is not None:
@@ -126,12 +172,19 @@ def resolve_order(s3, train_y: pd.Series, train_exog: pd.DataFrame) -> tuple[tup
             )
             return order, seasonal_order, "cached"
         logger.info(
-            f"Cached SARIMAX order is {age}d old (≥ {SARIMAX_RESEARCH_DAYS}d) — re-searching"
+            f"Cached SARIMAX order is {age}d old (≥ {SARIMAX_RESEARCH_DAYS}d) — re-selecting"
         )
 
-    order, seasonal_order = find_best_params(train_y, train_exog)
-    _save_cached_order(s3, order, seasonal_order)
-    return order, seasonal_order, "auto_arima_stepwise"
+    proposal = tuple(find_best_params(train_y, train_exog))
+    candidates = [proposal]
+    if cached is not None and tuple(cached[:2]) != proposal:
+        candidates.append(tuple(cached[:2]))
+    if len(candidates) == 1:
+        _save_cached_order(s3, *proposal)
+        return *proposal, "auto_arima_stepwise"
+    (order, seasonal_order), scores = select_order_by_validation(train_y, train_exog, candidates)
+    _save_cached_order(s3, order, seasonal_order, scores)
+    return order, seasonal_order, "validated"
 
 
 def run(gold_dvc_hash: str | None = None) -> None:
@@ -145,9 +198,9 @@ def run(gold_dvc_hash: str | None = None) -> None:
     split_date = y.index[-TEST_DAYS]
     train_idx = y.loc[: split_date - pd.Timedelta(days=1)].index
     test_idx = y.loc[split_date:].index
-    train_y, test_y = y.loc[train_idx], y.loc[test_idx]
+    train_y = y.loc[train_idx]
 
-    train_exog, test_exog, _ = scale_exog(exog, train_idx, test_idx)
+    train_exog, _, eval_scaler = scale_exog(exog, train_idx, test_idx)
 
     s3 = get_s3_client()
     best_order, best_seasonal, order_source = resolve_order(s3, train_y, train_exog)
@@ -171,9 +224,9 @@ def run(gold_dvc_hash: str | None = None) -> None:
             }
         )
 
-        # ── Holdout evaluation: fit on the training split only and score the
-        #    untouched last TEST_DAYS so the logged metrics reflect genuine
-        #    out-of-sample performance.
+        # ── Holdout evaluation: fit on the data before the last TEST_DAYS only, then
+        #    forecast 14 days from each weekly origin in that window, re-anchoring on
+        #    the actuals known at the origin — the task production serves.
         logger.info("Fitting evaluation SARIMAX on training split for holdout metrics")
         eval_model = SARIMAX(
             train_y,
@@ -184,49 +237,12 @@ def run(gold_dvc_hash: str | None = None) -> None:
             enforce_invertibility=False,
         ).fit(disp=False)
 
-        forecast = eval_model.get_forecast(steps=len(test_y), exog=test_exog)
-        y_pred = forecast.predicted_mean
-        conf_int = forecast.conf_int()
-
-        mae = mean_absolute_error(test_y, y_pred)
-        rmse = np.sqrt(mean_squared_error(test_y, y_pred))
-        mape = mean_absolute_percentage_error(test_y, y_pred)
-        mlflow.log_metrics({"mae": mae, "rmse": rmse, "mape": mape})
-        logger.info(f"Holdout metrics — MAE: {mae:.4f}M  RMSE: {rmse:.4f}M  MAPE: {mape:.2%}")
-
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(test_y.index, test_y, label="Actual", color="steelblue")
-        ax.plot(test_y.index, y_pred, label="SARIMAX forecast", linestyle="--", color="darkorange")
-        ax.fill_between(
-            test_y.index,
-            conf_int.iloc[:, 0],
-            conf_int.iloc[:, 1],
-            color="gray",
-            alpha=0.25,
-            label="95% CI",
+        exog_scaled = pd.DataFrame(eval_scaler.transform(exog), index=exog.index, columns=EXOG_COLS)
+        origins = forecast_origins(len(y), TEST_DAYS, FORECAST_HORIZON_DAYS)
+        preds = sarimax_origin_forecasts(
+            eval_model, y, exog_scaled, len(train_y), origins, FORECAST_HORIZON_DAYS
         )
-        ax.set_title(f"SARIMAX Champion | MAE: {mae:.3f}M | MAPE: {mape:.2%}")
-        ax.legend()
-        plot_path = REPORTS_DIR / "sarimax_training_forecast.png"
-        fig.savefig(plot_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        mlflow.log_artifact(str(plot_path))
-
-        # Per-day holdout predictions — the champion gate reads this to run the
-        # ensemble weight analysis on a common, out-of-sample window for both
-        # families (it cannot re-forecast the full-data production model honestly).
-        holdout_df = pd.DataFrame(
-            {
-                "date": test_y.index.strftime("%Y-%m-%d"),
-                "y_true": test_y.to_numpy(),
-                "y_pred": np.asarray(y_pred),
-            }
-        )
-        holdout_path = REPORTS_DIR / "holdout_predictions.json"
-        holdout_df.to_json(holdout_path, orient="records")
-        mlflow.log_artifact(str(holdout_path))
+        log_holdout(origin_records([y.index[p] for p in origins], preds, y), "SARIMAX")
 
         # ── Production model: refit on ALL data (train + holdout) with the chosen
         #    order so the shipped model uses every observation up to the latest

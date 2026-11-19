@@ -17,6 +17,7 @@ pipeline = [
     "statsmodels>=0.14",
     "pmdarima>=2.0",
     "xgboost>=2.0",
+    "optuna>=4.0",
     "shap>=0.44",
     "scikit-learn>=1.4",
     "mlflow>=3.13,<4",
